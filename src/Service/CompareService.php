@@ -28,6 +28,11 @@ class CompareService
     protected $targetTables = [];
 
     /**
+     * @var bool
+     */
+    protected $createsSorted = false;
+
+    /**
      * @var array
      */
     protected $changes = [
@@ -45,10 +50,12 @@ class CompareService
     }
 
     /**
+     * Default behaviour is to sort create statements!
      * @return array
      */
     public function getChanges()
     {
+        $this->getCreateStatements();
         return $this->changes;
     }
 
@@ -61,11 +68,94 @@ class CompareService
     }
 
     /**
+     * @param bool $sort = true
      * @return array
      */
-    public function getCreateStatements()
+    public function getCreateStatements($sort = true)
     {
+        if (!$sort || $this->createsSorted) {
+            return $this->changes['createTables'];
+        }
+        $resolved = [];
+        $dependencyMap = [];
+        $pending = [];
+        //resolve simple tables (no dependencies)
+        foreach ($this->changes['createTables'] as $query) {
+            $table = new Table($query);
+            $tableName = $table->getName();
+            $depends = $table->getDependencies();
+            if (!$depends) {
+                $resolved[$tableName] = $query;
+            } elseif ($this->dependenciesMet($resolved, $depends)) {
+                $resolved[$tableName] = $query;
+            } else {
+                $dependencyMap[$tableName] = $depends;
+                $pending[$tableName] = [
+                    'query'     => $query,
+                    'parsed'    => $table,
+                ];
+            }
+        }
+        //keep checking pending alters until we can't resolve any more queries
+        $afterCount = count($resolved);
+        do {
+            $preCount = $afterCount;
+            foreach ($dependencyMap as $name => $depends) {
+                if ($this->dependenciesMet($resolved, $depends)) {
+                    $resolved[$name] = $pending[$name]['query'];
+                    unset($pending[$name]);
+                } else {
+                    //remove dependencies that might not be in create list here
+                    $clean = [];
+                    foreach ($depends as $name) {
+                        if (isset($resolved[$name]) || isset($pending[$name])) {
+                            $clean[] = $name;
+                        }
+                    }
+                    //rework map
+                    $dependencyMap[$name] = $clean;
+                }
+            }
+            $afterCount = count($resolved);
+        } while ($preCount != $afterCount);
+        $this->changes['createTables'] = $this->addMarkedCreates($pending, $resolved);
+        $this->createsSorted = true;
         return $this->changes['createTables'];
+    }
+
+    /**
+     * @param array $pending
+     * @param array $resolved
+     * @return array
+     */
+    private function addMarkedCreates(array $pending, array $resolved)
+    {
+        foreach ($pending as $name => $data) {
+            /** @var Table $table */
+            $table = $data['parsed'];
+            $unmet = array_diff($table->getDependencies(), array_keys($resolved));
+            $resolved[$name] = sprintf(
+                '%s -- Might have unmet dependencies on one or more of these tables: %s',
+                $data['query'],
+                implode(', ', $unmet)
+            );
+        }
+        return $resolved;
+    }
+
+    /**
+     * @param array $resolved
+     * @param array $dependencies
+     * @return bool
+     */
+    private function dependenciesMet(array $resolved, array $dependencies)
+    {
+        foreach ($dependencies as $name) {
+            if (!isset($resolved[$name])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -119,7 +209,7 @@ class CompareService
         foreach ($tables as $tblName) {
             if ($for === DbService::FOR_BOTH && !$this->dbService->baseHasTable($tblName)) {
                 $creates = $this->dbService->getCreateStatements($tblName, DbService::FOR_TARGET);
-                $this->changes['createTables'][] = $creates['target'];
+                $this->changes['createTables'][] = $creates['target'] . ';';//add semi-colon
             } else {
                 $creates = $this->dbService->getCreateStatements($tblName, $for);
                 if ($for === DbService::FOR_TARGET && !$this->dbService->baseHasTable($tblName)) {

@@ -170,7 +170,7 @@ class Field extends AbstractModel
             $this->type = $match[2];
             return $this;
         }
-        if (!preg_match('/^`([^`]+)[`\s]*([^\s]+(?!\()|[^)]+\))\s*([^,]*?)(DEFAULT\s+([^,]+)|AUTO_INCREMENT)?,?$/i', $stmt, $match)) {
+        if (!preg_match('/^`([^`]+)[`\s]*([^\s]+(?!\()|[^)]+\))\s*([^,]*?)(DEFAULT\s+([^,]+)|AUTO_INCREMENT)?,?$/', $stmt, $match)) {
             throw new \RuntimeException(
                 sprintf(
                     'Unable to parse field-definition %s',
@@ -181,18 +181,24 @@ class Field extends AbstractModel
         if (!$this->name) {
             $this->name = $match[1];
         }
-        $this->type = $match[2];
+        $this->type = trim($match[2]);
         //either NOT NULL or empty string
-        $this->attrString = $match[3];
+        $this->attrString = trim($match[3]);
         if (!$match[3]) {
             $this->nullable = true;
         } else {
-            if (strstr($match[3], 'unsigned')) {
+            if (mb_strstr($match[3], 'unsigned')) {
                 $this->unsigned = true;
             }
-            if (strstr($match[3], 'NOT NULL')) {
+            if (mb_strstr($match[3], 'NOT NULL')) {
                 $this->nullable = false;
             }
+        }
+        if (isset($match[4]) && $match[4] === 'AUTO_INCREMENT') {
+            $this->attrString = $this->attrString . ' AUTO_INCREMENT';
+            $this->autoIncrement = true;
+        } elseif (mb_strstr($this->attrString, 'AUTO_INCREMENT') !== false) {
+            $this->autoIncrement = true;
         }
         if (array_key_exists(5, $match)) {
             $this->defaultValue = $match[5];

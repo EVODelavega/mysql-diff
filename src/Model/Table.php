@@ -34,6 +34,25 @@ class Table extends AbstractModel
     protected $constraints = [];
 
     /**
+     * @var array
+     */
+    protected $dependencies = [];
+
+    /**
+     * @return array
+     */
+    public function getDependencies()
+    {
+        if (!$this->dependencies && $this->constraints) {
+            /** @var ForeignKey $fk */
+            foreach ($this->constraints as $fk) {
+                $this->dependencies[] = $fk->getReferences();
+            }
+        }
+        return $this->dependencies;
+    }
+
+    /**
      * @param string $name
      * @return bool
      */
@@ -422,6 +441,9 @@ class Table extends AbstractModel
         }
 
         foreach ($lines as $ln) {
+            if (mb_substr($ln, -1) == ',') {
+                $ln = mb_substr($ln, 0, -1);
+            }
             //field lines start with back-tick
             switch ($ln{0}) {
                 case '`':
