@@ -116,9 +116,10 @@ class Table extends AbstractModel
 
     /**
      * @param string $name
+     * @param bool $namesOnly = false
      * @return array
      */
-    protected function getIndexesWithField($name)
+    protected function getIndexesWithField($name, $namesOnly = false)
     {
         $relevantIdx = [];
         /** @var Index $idx */
@@ -126,6 +127,9 @@ class Table extends AbstractModel
             if ($idx->containsField($name)) {
                 $relevantIdx[$idxName] = $idx;
             }
+        }
+        if ($namesOnly === true) {
+            return array_keys($relevantIdx);
         }
         return $relevantIdx;
     }
@@ -214,6 +218,36 @@ class Table extends AbstractModel
                     );
                     //alter field definition object
                     $this->fields[$name] = $def;
+                }
+            }
+        }
+        return $parts;
+    }
+
+    /**
+     * @param Table $target
+     * @param array $parts
+     * @return array
+     */
+    protected function purgeFields(Table $target, array $parts = [])
+    {
+        $fieldNames = array_keys($this->fields);
+        foreach ($fieldNames as $name) {
+            if (!$target->hasField($name)) {
+                $parts[] = sprintf(
+                    'DROP COLUMN `%s`',
+                    $name
+                );
+                //remove field
+                unset($this->fields[$name]);
+                //drop all affected indexes
+                $indexes = $this->getIndexesWithField($name, true);
+                foreach ($indexes as $idx) {
+                    unset($this->indexes[$idx]);
+                    $parts[] = sprintf(
+                        'DROP INDEX `%s`',
+                        $idx
+                    );
                 }
             }
         }
@@ -319,11 +353,12 @@ class Table extends AbstractModel
 
     /**
      * @param Table $target
+     * @param bool $purge = false
      * @param bool $includeFKs = false
      *
      * @return string
      */
-    public function getChangeToQuery(Table $target, $includeFKs = false)
+    public function getChangeToQuery(Table $target, $purge = false, $includeFKs = false)
     {
         if ($this->isEqual($target, true)) {
             return '';
@@ -334,6 +369,9 @@ class Table extends AbstractModel
             $fks = [];
         }
         $parts = $this->compareFields($target);
+        if ($purge === true) {
+            $parts = $this->purgeFields($target, $parts);
+        }
         $parts = $this->comparePrimary($target, $parts);
         $parts = $this->compareIndexes($target, $parts);
 

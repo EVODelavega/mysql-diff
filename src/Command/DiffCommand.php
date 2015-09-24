@@ -6,6 +6,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Formatter\OutputFormatterStyle;
 use Diff\Service\DbService;
 use Diff\Service\CompareService;
 
@@ -24,34 +25,67 @@ class DiffCommand extends Command
             ->addOption('alter', 'a', InputOption::VALUE_NONE, 'Output alter statements')
             ->addOption('fks', 'F', InputOption::VALUE_NONE, 'When generating alter statement, include FK changes')
             ->addOption('drop', 'd', InputOption::VALUE_NONE, 'Output drop statements for tables that are not in target schema')
+            ->addOption('purge', 'P', InputOption::VALUE_NONE, 'Drop fields that are not found in the target schema')
         ;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $fks = false;
+        $purge = $fks = false;
         $mode = 0;
+        $checks = [];
         if ($input->getOption('create')) {
             $mode |= CompareService::PROCESS_CREATE;
+            $checks[] = 'Add missing tables';
         }
         if ($input->getOption('alter')) {
             $mode |= CompareService::PROCESS_ALTER;
             $fks = (bool) $input->getOption('fks');
+            if ($input->getOption('purge')) {
+                $mode |= CompareService::PROCESS_PURGE;
+                $purge = true;
+            }
+            $checks[] = 'Check table changes ' . ($fks ? '' : 'NOT ') . 'including foreign keys';
         }
         if ($input->getOption('drop')) {
             $mode |= CompareService::PROCESS_DROP;
+            $checks[] = 'Drop legacy tables';
         }
-        $output->writeln(
-            sprintf(
-                '<info>Processing tables using mode %d</info>',
-                $mode
-            )
-        );
         if ($mode === 0) {
             $output->writeln(
                 '<info>Nothing to process: use the tcaFd flags to control what should be checked</info>'
             );
             return;
+        }
+        $output->writeln(
+            sprintf(
+                '<info>Processing tables:</info>',
+                $mode
+            )
+        );
+        foreach ($checks as $ln) {
+            $output->writeln(
+                sprintf(
+                    '<info>%s</info>',
+                    $ln
+                )
+            );
+        }
+        if ($purge === true) {
+            $output->getFormatter()
+                ->setStyle(
+                    'purge',
+                    new OutputFormatterStyle(
+                        'red',
+                        'yellow',
+                        [
+                            'bold',
+                            'blink',
+                            'underscore'
+                        ]
+                    )
+                );
+            $output->writeln('<purge>Dropping old fields</purge>');
         }
         $dbService = $this->getDbService($input, $output);
         if (!$dbService) {
@@ -60,15 +94,15 @@ class DiffCommand extends Command
         $compare = new CompareService($dbService);
         $compare->processTables($mode, $fks);
         $changes =  $compare->getChanges();
-        foreach ($changes as $key => $vals) {
-            if ($vals) {
+        foreach ($changes as $key => $values) {
+            if ($values) {
                 $output->writeln(
                     sprintf(
                         '-- %s',
                         $key
                     )
                 );
-                foreach ($vals as $val) {
+                foreach ($values as $val) {
                     $output->writeln($val);
                 }
             }

@@ -7,9 +7,10 @@ class CompareService
 {
     const PROCESS_CREATE = 1;
     const PROCESS_ALTER = 2;
-    const PROCESS_EXISTING = 3;
-    const PROCESS_DROP = 4;
-    const PROCESS_ALL = 7;
+    const PROCESS_PURGE = 4;
+    const PROCESS_EXISTING = 7;
+    const PROCESS_DROP = 8;
+    const PROCESS_ALL = 15;
 
     /**
      * @var DbService
@@ -84,12 +85,15 @@ class CompareService
     {
         $existing = ($mode & self::PROCESS_EXISTING);
         if ($existing) {
+            //should we purge columns?
+            $purge = (($mode & self::PROCESS_PURGE) === self::PROCESS_PURGE);
             $checkNames = $this->processExisting($mode);
             foreach ($checkNames as $name) {
                 /** @var Table $base */
                 $base = $this->baseTables[$name];
                 $query = $base->getChangeToQuery(
                     $this->targetTables[$name],
+                    $purge,
                     $fks
                 );
                 if ($query) {

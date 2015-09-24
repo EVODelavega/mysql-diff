@@ -164,6 +164,12 @@ class Field extends AbstractModel
      */
     public function parse($stmt)
     {
+        //definitions like "`field` text," cause issues here:
+        if (preg_match('/^`([^`]+)`\s+([^\s,]+),$/', $stmt, $match)) {
+            $this->name = $match[1];
+            $this->type = $match[2];
+            return $this;
+        }
         if (!preg_match('/^`([^`]+)[`\s]*([^\s]+(?!\()|[^)]+\))\s*([^,]*?)(DEFAULT\s+([^,]+)|AUTO_INCREMENT)?,?$/i', $stmt, $match)) {
             throw new \RuntimeException(
                 sprintf(
