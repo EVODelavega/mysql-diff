@@ -1,0 +1,29 @@
+{
+  "name": "eliasvo/dbdiff",
+  "version": "1.0.0",
+  "description": "Diff 2 db's, generate the queries needed to match a given schema",
+  "keywords": [
+    "MySQL",
+    "DB",
+    "Migration",
+    "diff",
+    "DB diff",
+    "SQL"
+  ],
+  "license": "GPL-2.0+",
+  "authors": [
+    {
+      "name": "Elias Van Ootegem",
+      "role": "Developer"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Diff\\": "src/"
+    }
+  },
+  "require": {
+    "php": ">=5.4.0",
+    "symfony/console": "^2.7"
+  }
+}
