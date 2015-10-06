@@ -61,10 +61,12 @@ class Index extends AbstractModel
     {
         if ($stmt{0} === 'U') {
             $this->unique = true;
-            $this->type .= 'UNIQUE ';
+            $this->type = 'UNIQUE ';
         } elseif ($stmt{0} === 'F') {
             $this->fullText = true;
-            $this->type .= 'FULLTEXT ';
+            $this->type = 'FULLTEXT ';
+        } elseif ($stmt{0} === 'S') {
+            $this->type = 'SPATIAL ';
         }
         if (!preg_match('/`([^`]+)[^(]*\((.+)\)/', $stmt, $match)) {
             throw new \RuntimeException(

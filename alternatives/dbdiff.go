@@ -1,5 +1,9 @@
 package dbdiff
 
+//This is part of a bigger project that is meant to compare
+//databases by parsing the CREATE TABLE statements, comparing them and
+//churning out a file that creates a new version of a target DB
+
 import (
 	"errors"
 	"fmt"

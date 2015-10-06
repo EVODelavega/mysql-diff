@@ -39,6 +39,15 @@ class Table extends AbstractModel
     protected $dependencies = [];
 
     /**
+     * @var array
+     */
+    protected $guardianTables = [];
+
+    /**
+     * @var array
+     */
+    protected $dependantTables = [];
+    /**
      * @return array
      */
     public function getDependencies()
@@ -50,6 +59,133 @@ class Table extends AbstractModel
             }
         }
         return $this->dependencies;
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasGuardianTables()
+    {
+        return !empty($this->guardianTables);
+    }
+
+    /**
+     * @return array
+     */
+    public function getGuardianTables()
+    {
+        return $this->guardianTables;
+    }
+
+    /**
+     * @param Table $table
+     * @return $this
+     */
+    public function addGuardianTable(Table $table)
+    {
+        //some checks to prevent deadlocks when adding linked tables
+        if ($this->isGuardianTable($table)) {
+            return $this;//link already set
+        }
+        $name = $table->getName();
+        if (isset($this->guardianTables[$name])) { //link exists, but not to the linked table!
+            $this->removeGuardianTable($this->guardianTables[$name]);
+        }
+        $this->guardianTables[$table->getName()] = $table;
+        $table->addDependantTable($this);
+        return $this;
+    }
+
+    /**
+     * @param Table $table
+     * @return bool
+     */
+    public function isGuardianTable(Table $table)
+    {
+        return (isset($this->guardianTables[$table->getName()]) && $this->guardianTables[$table->getName()] === $table);
+    }
+
+    /**
+     * @param Table $table
+     * @return $this
+     */
+    public function removeGuardianTable(Table $table)
+    {
+        if (isset($this->guardianTables[$table->getName()])) {
+            unset($this->guardianTables[$table->getName()]);
+            $table->removeDependantTable($this);
+        }
+        return $this;
+    }
+
+    /**
+     * @param Table $table
+     * @return $this
+     */
+    public function addDependantTable(Table $table)
+    {
+        if ($this->isDependantTable($table)) {
+            return $this;//link already made
+        }
+        $name = $table->getName();
+        if (isset($this->dependantTables[$name])) {
+            //incorrect link
+            $this->removeDependantTable($this->dependantTables[$name]);
+        }
+        $this->dependantTables[$name] = $table;
+        $table->addGuardianTable($this);
+        return $this;
+    }
+
+    /**
+     * @return array
+     */
+    public function getDependantTables()
+    {
+        return $this->dependantTables;
+    }
+
+    /**
+     * @param Table $table
+     * @return bool
+     */
+    public function isDependantTable(Table $table)
+    {
+        return (isset($this->dependantTables[$table->getName()]) && $this->dependantTables[$table->getName()] === $table);
+    }
+
+    /**
+     * @param Table $table
+     * @return $this
+     */
+    public function removeDependantTable(Table $table)
+    {
+        if (isset($this->dependantTables[$table->getName()])) {
+            unset($this->dependantTables[$table->getName()]);
+            $table->removeGuardianTable($this);
+        }
+        return $this;
+    }
+
+    /**
+     * Remove dependant and guardian table links for this table
+     * @return $this
+     */
+    public function unlinkTable()
+    {
+        //use array_slice: we're changing the arrays whilst iterating over them
+        //that's messy, so instead: use a copy and remove them from the properties here
+        $guardianTables = array_slice($this->guardianTables, 0);//copy guardians
+        /** @var Table $guardian */
+        foreach ($guardianTables as $guardian) {
+            $this->removeGuardianTable($guardian);
+        }
+        $dependantTables = array_slice($this->dependantTables, 0);//create copy
+        /** @var Table $dependant */
+        foreach ($dependantTables as $dependant) {
+            $this->removeDependantTable($dependant);
+        }
+        return $this;
     }
 
     /**
@@ -403,12 +539,73 @@ class Table extends AbstractModel
     }
 
     /**
+     * @param array $parts = []
+     * @return array
+     */
+    protected function getFieldDefinitions(array $parts = [])
+    {
+        /** @var Field $field */
+        foreach ($this->fields as $field) {
+            $parts[] = $field->getDefinitionString();
+        }
+        return $parts;
+    }
+
+    /**
+     * @param array $parts = []
+     * @return array
+     */
+    protected function getPrimaryKeyDefinition(array $parts = [])
+    {
+        if ($this->primary) {
+            $parts[] = $this->primary->getDefinitionString();
+        }
+        return $parts;
+    }
+
+    /**
+     * @param array $parts
+     * @return array
+     */
+    protected function getIndexDefinitions(array $parts = [])
+    {
+        /** @var Index $index */
+        foreach ($this->indexes as $index) {
+            $parts[] = $index->getDefinitionString();
+        }
+        return $parts;
+    }
+
+    /**
+     * @param array $parts
+     * @return array
+     */
+    protected function getForeignKeyDefinitions(array $parts = [])
+    {
+        /** @var ForeignKey $fk */
+        foreach ($this->constraints as $fk) {
+            $parts[] = $fk->getDefinitionString();
+        }
+        return $parts;
+    }
+
+    /**
      * get definition string, used by formCompare method
      * @return string
      */
     public function getDefinitionString()
     {
-        return $this->statement;
+        $parts = $this->getFieldDefinitions();
+        $parts = $this->getPrimaryKeyDefinition($parts);
+        $parts = $this->getIndexDefinitions($parts);
+        $parts = $this->getForeignKeyDefinitions($parts);
+        $stmt = sprintf(
+            'CREATE TABLE IF NOT EXISTS `%s` (%s)%s;',
+            $this->name,
+            implode(', ', $parts),
+            $this->last
+        );
+        return str_replace('))', ')', $stmt);//possible double closing brackets, remove them
     }
 
     /**
@@ -453,9 +650,11 @@ class Table extends AbstractModel
                 case 'P':
                     $this->primary = new Primary($ln);
                     break;
-                case 'U':
-                case 'F':
-                case 'K':
+                case 'S'://spatial
+                case 'U'://unique
+                case 'F'://fulltext
+                case 'I'://index
+                case 'K'://Key
                     $idx = new Index($ln);
                     $this->indexes[$idx->getName()] = $idx;
                     break;
@@ -474,5 +673,13 @@ class Table extends AbstractModel
             }
         }
         return $this;
+    }
+
+    /**
+     * Unlink tables on destruct, ensuring this instance isn't referenced anywhere
+     */
+    public function __destruct()
+    {
+        $this->unlinkTable();
     }
 }
