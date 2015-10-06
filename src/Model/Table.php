@@ -612,6 +612,22 @@ class Table extends AbstractModel
      * @param string $stmt
      * @return $this
      */
+    public function setStatement($stmt)
+    {
+        if ($this->statement) {
+            $this->unlinkTable();
+            $this->fields = [];
+            $this->primary = null;
+            $this->last = $this->first = '';
+            $this->constraints = [];
+        }
+        return parent::setStatement($stmt);
+    }
+
+    /**
+     * @param string $stmt
+     * @return $this
+     */
     public function parse($stmt)
     {
         $lines = array_map('trim', explode(PHP_EOL, $stmt));

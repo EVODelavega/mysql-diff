@@ -22,7 +22,19 @@ abstract class AbstractModel
     {
         $this->statement = trim($stmt);
         $this->name = $name;
-        $this->parse($this->statement);
+        if ($this->statement) {
+            $this->parse($this->statement);
+        }
+    }
+
+    /**
+     * @param string $stmt
+     * @return $this
+     */
+    public function setStatement($stmt)
+    {
+        $this->statement = $stmt;
+        return $this;
     }
 
     /**

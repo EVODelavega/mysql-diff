@@ -2,6 +2,7 @@
 namespace Diff\Service;
 
 use Diff\Model\Table;
+use Diff\Model\Database;
 
 class CompareService
 {
@@ -164,6 +165,25 @@ class CompareService
     public function getDropStatements()
     {
         return $this->changes['dropTables'];
+    }
+
+    /**
+     * @param string $dbName
+     * @return Database
+     */
+    public function getDatabase($dbName)
+    {
+        $db = $this->dbService->getDatabase($dbName);
+        if (!$db) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Schema "%s" not found',
+                    $dbName
+                )
+            );
+        }
+        $this->dbService->loadTablesForDatabase($db);
+        return $db;
     }
 
     /**

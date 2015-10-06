@@ -1,6 +1,9 @@
 <?php
 namespace Diff\Service;
 
+use Diff\Model\Database;
+use Diff\Model\Table;
+
 class DbService
 {
     const FOR_BASE = 1;
@@ -55,6 +58,69 @@ class DbService
         );
         $this->base = $base;
         $this->target = $target;
+    }
+
+    /**
+     * @param string $dbName
+     * @return Database|null
+     */
+    public function getDatabase($dbName)
+    {
+        $query = sprintf(
+            'SHOW CREATE DATABASE `%s`;',
+            trim(
+                trim(
+                    $dbName
+                ),
+                '`'
+            )
+        );
+        $stmt = $this->conn->query($query);
+        $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$result) {
+            return null;
+        }
+        $db = new Database($result['Create Database'], $dbName);
+        return $db;
+    }
+
+    /**
+     * @param Database $db
+     * @return Database
+     */
+    public function loadTablesForDatabase(Database $db)
+    {
+        $tables = $this->getTables(
+            $db->getName()
+        );
+        foreach ($tables as $tName) {
+            $this->getCreateStatement(
+                new Table('', $tName),
+                $db
+            );
+        }
+        return $db;
+    }
+
+    /**
+     * @param Table $table
+     * @param Database $db
+     * @return Table
+     */
+    protected function getCreateStatement(Table $table, Database $db)
+    {
+        $stmt = $this->conn->query(
+            sprintf(
+                'SHOW CREATE TABLE %s.%s',
+                $db->getName(),
+                $table->getName()
+            )
+        );
+        $create = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $table->setStatement($create['Create Table'])
+            ->parse($create['Create Table']);
+        $db->addTable($table);
+        return $table;
     }
 
     /**
