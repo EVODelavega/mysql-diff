@@ -273,6 +273,46 @@ class CompareService
     }
 
     /**
+     * @param Database $base
+     * @param Database $target
+     * @param bool $dropFields
+     * @param bool $checkFKs
+     * @return array
+     */
+    public function compareTables(Database $base, Database $target, $dropFields = false, $checkFKs = false)
+    {
+        $changeQueries = [];
+        /** @var Table $table */
+        foreach ($base->getTables() as $name => $table) {
+            if ($target->hasTable($name)) {
+                $query = $table->getChangeToQuery($target->getTableByName($name), $checkFKs, $dropFields);
+                if ($query) {
+                    $changeQueries[$name] = $query;
+                }
+            }
+        }
+        return $changeQueries;
+    }
+
+    /**
+     * @param Database $base
+     * @param Database $target
+     * @return array
+     */
+    public function dropRedundantTables(Database $base, Database $target)
+    {
+        $drop = [];
+        /** @var Table $table */
+        foreach ($base->getTables() as $name => $table) {
+            if (!$target->hasTable($name)) {
+                $drop[] = $table->getDropQuery();
+                $table->unlinkTable();
+            }
+        }
+        return $drop;
+    }
+
+    /**
      * @param int $mode
      * @param bool $fks = false
      * @return $this

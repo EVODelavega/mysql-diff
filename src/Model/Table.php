@@ -83,6 +83,28 @@ class Table extends AbstractModel
     }
 
     /**
+     * @return string
+     */
+    public function getDropQuery()
+    {
+        //first, remove the constraints from dependant tables
+        $preQuery = [];
+        /** @var Table $table */
+        foreach ($this->dependantTables as $name => $table) {
+            $preQuery[] = $table->getDropFKQuery(
+                $table->getConstraintsByTable($this)
+            );
+        }
+        $this->dependantTables = [];//remove dependant tables
+        //then drop the table
+        return sprintf(
+            '%s;DROP TABLE IF EXISTS `%s`;',
+            implode('; ', $preQuery),
+            $this->name
+        );
+    }
+
+    /**
      * @return $this
      */
     public function markRenamed()
@@ -226,6 +248,47 @@ class Table extends AbstractModel
             $table->removeDependantTable($this);
         }
         return $this;
+    }
+
+    public function getConstraintsByTable(Table $guardian)
+    {
+        $tableName = $guardian->getName();
+        $keys = [];
+        /** @var ForeignKey $fk */
+        foreach ($this->constraints as $name => $fk) {
+            if ($fk->getReferences() == $tableName) {
+                $keys[] = $name;
+            }
+        }
+        return $keys;
+    }
+
+    /**
+     * @param array $keys
+     * @return string
+     */
+    public function getDropFKQuery(array $keys)
+    {
+        foreach ($keys as $key) {
+            if (!isset($this->constraints[$key])) {
+                throw new \RuntimeException(
+                    sprintf(
+                        'Table %s does not have FK %s defined',
+                        $this->name,
+                        $key
+                    )
+                );
+            }
+        }
+        $query = sprintf(
+            'ALTER TABLE `%s` DROP FOREIGN KEY %s',
+            implode(', DROP FOREIGN KEY ', $keys)
+        );
+        foreach ($keys as $key) {
+            //remove FK's
+            unset($this->constraints[$key]);
+        }
+        return $query;
     }
 
     /**

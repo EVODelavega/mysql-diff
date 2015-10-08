@@ -32,7 +32,6 @@ class CompareCommand extends Command
             ->setDescription('compare 2 Databases')
             ->addOption('host', 'H', InputOption::VALUE_REQUIRED, 'The host on which both DBs are found', '127.0.0.1')
             ->addOption('username', 'u', InputOption::VALUE_REQUIRED, 'The DB username to use', 'root')
-            ->addOption('password', 'p', InputOption::VALUE_REQUIRED, 'The DB password to use', '')
             ->addOption('base', 'b', InputOption::VALUE_REQUIRED, 'The base DB (The db that needs to change)', null)
             ->addOption('target', 't', InputOption::VALUE_REQUIRED, 'The target DB (The example schema we want to migrate to)', null)
             ->addOption('interactive', 'i', InputOption::VALUE_NONE, 'Compare interactively (prompt for possible renames, allow skipping changes')
@@ -136,16 +135,34 @@ class CompareCommand extends Command
                 }
                 break;
             case 'alter':
-                $output->writeln('<info>alter task not implemented yet</info>');
-                $queries[] = '';
+                $dropFields = false;
+                $checkFks = false;
+                if ($this->interactive) {
+                    $dropFields = $this->dialog->askConfirmation(
+                        $output,
+                        '<question>Drop fields not in target table? (default: false)</question>',
+                        $dropFields
+                    );
+                    $checkFks = $this->dialog->askConfirmation(
+                        $output,
+                        '<question>Check Foreign Key constraints? (default: false)</question>',
+                        $checkFks
+                    );
+                }
+                $queries = $service->compareTables($dbs['base'], $dbs['target'], $dropFields, $checkFks);
                 break;
             case 'constraints':
                 $output->writeln('<info>constraints task not implemented yet</info>');
                 $queries[] = '';
                 break;
             case 'drop':
-                $output->writeln('<info>drop task not implemented yet</info>');
-                $queries[] = '';
+                if (!$loaded) {
+                    $output->writeln(
+                        '<error>Cannot reliably drop tables if relational table links were not set up</error>'
+                    );
+                    $output->writeln('<comment>As a result, these drop statements might not work</coment>');
+                }
+                $queries = $service->dropRedundantTables($dbs['base'], $dbs['target']);
                 break;
             default:
                 $queries[] = '';
@@ -264,7 +281,11 @@ class CompareCommand extends Command
         }
         $host = $input->getOption('host');
         $user = $input->getOption('username');
-        $pass = $input->getOption('password');
+        $pass = (string) $this->dialog->askHiddenResponse(
+            $output,
+            '<question>Please enter the DB password (default "")</question>',
+            false
+        );
         $this->interactive = $input->getOption('interactive');
         return new DbService($host, $user, $pass, $base, $target);
     }
