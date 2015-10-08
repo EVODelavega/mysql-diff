@@ -285,7 +285,7 @@ class CompareService
         /** @var Table $table */
         foreach ($base->getTables() as $name => $table) {
             if ($target->hasTable($name)) {
-                $query = $table->getChangeToQuery($target->getTableByName($name), $checkFKs, $dropFields);
+                $query = $table->getChangeToQuery($target->getTableByName($name), $dropFields, $checkFKs);
                 if ($query) {
                     $changeQueries[$name] = $query;
                 }
