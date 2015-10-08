@@ -1,6 +1,7 @@
 <?php
 namespace Diff\Service;
 
+use Diff\Model\ForeignKey;
 use Diff\Model\Table;
 use Diff\Model\Database;
 
@@ -169,9 +170,10 @@ class CompareService
 
     /**
      * @param string $dbName
+     * @param bool $resolveDependencies = true
      * @return Database
      */
-    public function getDatabase($dbName)
+    public function getDatabase($dbName, $resolveDependencies = true)
     {
         $db = $this->dbService->getDatabase($dbName);
         if (!$db) {
@@ -182,8 +184,92 @@ class CompareService
                 )
             );
         }
-        $this->dbService->loadTablesForDatabase($db);
+        $this->dbService->loadTablesForDatabase($db, $resolveDependencies);
         return $db;
+    }
+
+    /**
+     * @param bool $resolveDependencies
+     * @return array
+     */
+    public function getDatabases($resolveDependencies = true)
+    {
+        $dbs = $this->dbService->getDatabaseObjects();
+        /** @var Database $db */
+        foreach ($dbs as $db) {
+            $this->dbService->loadTablesForDatabase($db, $resolveDependencies);
+        }
+        return $dbs;
+    }
+
+    /**
+     * @param Database $toUpgrade
+     * @param Database $targetVersion
+     * @param bool $checkRenames = false
+     * @return array
+     * @throws \RuntimeException
+     */
+    public function getMissingTablesFor(Database $toUpgrade, Database $targetVersion, $checkRenames = false)
+    {
+        $return = [
+            'added'     => [],
+            'renames'   => [],
+        ];
+        /**
+         * @var string $name
+         * @var  Table $table
+         */
+        foreach ($targetVersion->getTables() as $name => $table) {
+            if ($checkRenames) {
+                $renames = $this->crossCheckDependencies($toUpgrade, $table, $targetVersion);
+                if ($renames) {
+                    $return['renames'][$name] = [
+                        'new'               => $table,
+                        'possibleRenames'   => $renames,
+                    ];
+                    continue;
+                }
+            }
+            if (!$toUpgrade->hasTable($name)) {
+                $return['added'][$name] = $table;
+            }
+        }
+        $toUpgrade->addMissingTables($return['added']);
+        return $return;
+    }
+
+    /**
+     * @param Database $toCheck
+     * @param Table $missing
+     * @param Database $from
+     * @return array
+     */
+    protected function crossCheckDependencies(Database $toCheck, Table $missing, Database $from)
+    {
+        $renameCandidates = [];
+        $possibleDrops = [];
+        foreach ($toCheck as $name => $table) {
+            if (!$from->hasTable($name)) {
+                $possibleDrops[$name] = $table;
+            }
+        }
+        $depString = $missing->getSortedDependencyString();
+        /** @var Table $table */
+        foreach ($possibleDrops as $name => $table) {
+            if ($depString == $table->getSortedDependencyString()) {
+                $renameCandidates[$name] = $table;
+            } else {
+                //X-check existing FK's
+                /** @var ForeignKey $fk */
+                foreach ($table->getConstraints() as $fkName => $fk) {
+                    $missingFk = $missing->getConstraintByName($fkName);
+                    if ($missingFk && $missingFk->getReferences() === $fk->getReferences()) {
+                        $renameCandidates[$name] = $table;
+                    }
+                }
+            }
+        }
+        return $renameCandidates;
     }
 
     /**

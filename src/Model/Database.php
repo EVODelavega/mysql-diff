@@ -99,6 +99,31 @@ class Database extends AbstractModel
     }
 
     /**
+     * @return $this
+     */
+    public function linkTables()
+    {
+        /** @var Table $table */
+        foreach ($this->tables as $table) {
+            foreach ($table->getDependencies() as $dependency) {
+                if (!$this->hasTable($dependency)) {
+                    throw new \LogicException(
+                        sprintf(
+                            'Unable to resolve dependency: %s has guardian table %s, which does not exist',
+                            $table->getName(),
+                            $dependency
+                        )
+                    );
+                }
+                $table->addGuardianTable(
+                    $this->tables[$dependency]
+                );
+            }
+        }
+        return $this;
+    }
+
+    /**
      * @return array
      */
     public function getTables()
@@ -148,6 +173,57 @@ class Database extends AbstractModel
             //@todo unlink table here
         }
         $this->tables[$name] = $tbl;
+        return $this;
+    }
+
+    /**
+     * @param array $tables
+     * @return $this
+     * @throws \RuntimeException
+     */
+    public function addMissingTables(array $tables)
+    {
+        /** @var Table $table */
+        foreach ($tables as $table) {
+            $copy = $table->getUnlinkedCopy();
+            $dependencies = $copy->getDependencies();
+            foreach ($dependencies as $dependency) {
+                if ($this->hasTable($dependency)) {
+                    $copy->addGuardianTable($this->getTableByName($dependency));
+                } elseif (isset($tables[$dependency])) {
+                    $copy->addGuardianTable($tables[$dependency]);
+                } else {
+                    throw new \RuntimeException(
+                        sprintf(
+                            'Could not add table %s -> unresolvable guardian table %s',
+                            $copy->getName(),
+                            $dependency
+                        )
+                    );
+                }
+            }
+            $this->addTable($copy);
+        }
+        return $this;
+    }
+
+    /**
+     * @param Table $table
+     * @param string $oldName
+     * @return $this
+     */
+    public function applyRename(Table $table, $oldName)
+    {
+        if (isset($this->tables[$table->getName()])) {
+            throw new \RuntimeException(
+                'cannot rename table to a name that already exists'
+            );
+        }
+        if (isset($this->tables[$oldName])) {
+            unset($this->tables[$oldName]);
+        }
+        //rename should be done on table instance, which propagates changes to linked table
+        $this->tables[$table->getName()] = $table;
         return $this;
     }
 

@@ -61,6 +61,17 @@ class DbService
     }
 
     /**
+     * @return array
+     */
+    public function getDatabaseObjects()
+    {
+        return [
+            'base'      => $this->getDatabase($this->base),
+            'target'    => $this->getDatabase($this->target),
+        ];
+    }
+
+    /**
      * @param string $dbName
      * @return Database|null
      */
@@ -77,7 +88,7 @@ class DbService
         );
         $stmt = $this->conn->query($query);
         $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if (!$result) {
+        if (!$result || !isset($result['Create Database'])) {
             return null;
         }
         $db = new Database($result['Create Database'], $dbName);
@@ -86,18 +97,22 @@ class DbService
 
     /**
      * @param Database $db
+     * @param bool $resolveDependencies = true
      * @return Database
      */
-    public function loadTablesForDatabase(Database $db)
+    public function loadTablesForDatabase(Database $db, $resolveDependencies = true)
     {
         $tables = $this->getTables(
             $db->getName()
         );
         foreach ($tables as $tName) {
-            $this->getCreateStatement(
+            $this->addCreateStatement(
                 new Table('', $tName),
                 $db
             );
+        }
+        if ($resolveDependencies) {
+            $db->linkTables();
         }
         return $db;
     }
@@ -107,7 +122,7 @@ class DbService
      * @param Database $db
      * @return Table
      */
-    protected function getCreateStatement(Table $table, Database $db)
+    protected function addCreateStatement(Table $table, Database $db)
     {
         $stmt = $this->conn->query(
             sprintf(
@@ -117,6 +132,9 @@ class DbService
             )
         );
         $create = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$create || !isset($create['Create Table'])) {
+            return null;
+        }
         $table->setStatement($create['Create Table'])
             ->parse($create['Create Table']);
         $db->addTable($table);

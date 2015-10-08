@@ -39,6 +39,11 @@ class Table extends AbstractModel
     protected $dependencies = [];
 
     /**
+     * @var string
+     */
+    protected $sortedDependencyString = null;
+
+    /**
      * @var array
      */
     protected $guardianTables = [];
@@ -47,6 +52,81 @@ class Table extends AbstractModel
      * @var array
      */
     protected $dependantTables = [];
+
+    /**
+     * @var bool
+     */
+    protected $rename = false;
+
+    /**
+     * @param string $newName
+     * @return $this
+     */
+    public function renameTable($newName)
+    {
+        $this->rename = $this->name;
+        $this->name = $newName;
+        /** @var Table $table */
+        foreach ($this->guardianTables as $table) {
+            //unset link with old name
+            unset($table->dependantTables[$this->rename]);
+            //add link with new name
+            $table->dependantTables[$newName] = $this;
+        }
+        foreach ($this->dependantTables as $table) {
+            //unset link with old name
+            unset($table->guardianTables[$this->rename]);
+            //update to new name
+            $table->guardianTables[$newName] = $this;
+        }
+        return $this;
+    }
+
+    /**
+     * @return $this
+     */
+    public function markRenamed()
+    {
+        $this->rename = false;
+        return $this;
+    }
+
+    /**
+     * @return string
+     */
+    public function getRenameQuery()
+    {
+        if (!$this->rename) {
+            return '';
+        }
+        return sprintf(
+            'RENAME TABLE %s TO %s;',
+            $this->rename,
+            $this->name
+        );
+    }
+
+    /**
+     * @return bool
+     */
+    public function isRenamed()
+    {
+        return $this->rename !== false;
+    }
+
+    /**
+     * @return string
+     */
+    public function getSortedDependencyString()
+    {
+        if (!$this->sortedDependencyString) {
+            $dependencies = $this->getDependencies();
+            sort($dependencies);
+            $this->sortedDependencyString = json_encode($dependencies);
+        }
+        return $this->sortedDependencyString;
+    }
+
     /**
      * @return array
      */
@@ -67,6 +147,36 @@ class Table extends AbstractModel
     public function hasGuardianTables()
     {
         return !empty($this->guardianTables);
+    }
+
+    /**
+     * Get a copy of this instance, without the linked guardian/dependant table objects
+     * @return Table
+     */
+    public function getUnlinkedCopy()
+    {
+        $copy = new Table('', $this->name);
+        $copyFields = [];
+        foreach ($this->fields as $name => $field) {
+            $copyFields[$name] = clone $field;
+        }
+        $copy->fields = $copyFields;
+        if ($this->primary) {
+            $copy->primary = clone $this->primary;
+        }
+        $copyConstraints = [];
+        foreach ($this->constraints as $name => $fk) {
+            $copyConstraints[$name] = clone $fk;
+        }
+        $copyIndexes = [];
+        foreach ($this->indexes as $name => $idx) {
+            $copyIndexes[$name] = clone $idx;
+        }
+        $copy->statement = $this->statement;
+        $copy->first = $this->first;
+        $copy->last = $this->last;
+        $copy->dependencies = $this->getDependencies();
+        return $copy;
     }
 
     /**
@@ -231,6 +341,26 @@ class Table extends AbstractModel
     public function hasConstraint($name)
     {
         return array_key_exists($name, $this->constraints);
+    }
+
+    /**
+     * @return array
+     */
+    public function getConstraints()
+    {
+        return $this->constraints;
+    }
+
+    /**
+     * @param string $name
+     * @return null|ForeignKey
+     */
+    public function getConstraintByName($name)
+    {
+        if ($this->hasConstraint($name)) {
+            return $this->constraints[$name];
+        }
+        return null;
     }
 
     /**
