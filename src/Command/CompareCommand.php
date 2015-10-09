@@ -12,6 +12,7 @@ use Diff\Service\DbService;
 use Diff\Service\CompareService;
 use Diff\Model\Table;
 use Diff\Model\Database;
+use Symfony\Component\Console\Output\StreamOutput;
 
 
 class CompareCommand extends Command
@@ -65,20 +66,58 @@ class CompareCommand extends Command
                 true
             );
         } while ($quit === false);
-        foreach ($done as $sectionName => $queries) {
-            $output->writeln(
+        $this->outputQueries($output, $done);
+    }
+
+    private function outputQueries(OutputInterface $output, array $queries)
+    {
+        /*
+        $multiFiles = $this->dialog->askConfirmation(
+            $output,
+            '<question>Do you want to create separate files for each change-set? (default: no)</question>',
+            false
+        );*/
+        $outFile = $this->dialog->ask(
+            $output,
+            '<question>Where do you want to write the queries to? (file path, leave blank for stdout)</question>',
+            null
+        );
+        if ($outFile === null) {
+            $outStream = $output;
+        } else {
+            $append = $this->dialog->askConfirmation(
+                $output,
+                '<question>Files will be truncated by default, do you wish to append output instead?</question>',
+                false
+            );
+            $mode = $append ? 'a' : 'w';
+            $outStream = fopen($outFile, $mode, false);
+            if (!$outStream) {
+                $output->writeln(
+                    sprintf(
+                        '<error>Failed to open file %s, falling back to stdout</error>',
+                        $outFile
+                    )
+                );
+                $outStream = $output;
+            } else {
+                $outStream = new StreamOutput($outStream);
+            }
+        }
+        foreach ($queries as $section => $statements) {
+            $outStream->writeln(
                 sprintf(
                     '-- %s queries',
-                    $sectionName
+                    $section
                 )
             );
-            foreach ($queries as $q) {
-                $output->writeln($q . ';' . PHP_EOL);
+            foreach ($statements as $q) {
+                $outStream->writeln($q . ';' . PHP_EOL);
             }
-            $output->writeln(
+            $outStream->writeln(
                 sprintf(
                     '-- END %s queries ' . PHP_EOL,
-                    $sectionName
+                    $section
                 )
             );
         }
@@ -184,6 +223,16 @@ class CompareCommand extends Command
                 )
             );
             if ($this->interactive) {
+                $possibleRenames = [];
+                $options = [];
+                foreach ($data['possibleRenames'] as $name => $values) {
+                    $possibleRenames[$name] = $values['table'];
+                    $options[] = sprintf(
+                        '%s (Similarity %.2f%%)',
+                        $name,
+                        $values['similarity']
+                    );
+                }
                 $options = array_keys($data['possibleRenames']);
                 $default = count($options);
                 $options[] = 'Add as new table';
@@ -198,7 +247,7 @@ class CompareCommand extends Command
                 } else {
                     $key = $options[$action];
                     /** @var Table $table */
-                    $table = $data['possibleRenames'][$key];
+                    $table = $possibleRenames[$key];
                     $return['rename'][$name] = $table->renameTable($name);
                 }
             } else {
@@ -213,13 +262,14 @@ class CompareCommand extends Command
                     $names = array_keys($data['possibleRenames']);
                     $oldName = $names[0];
                     /** @var Table $table */
-                    $table = $data['possibleRenames'][$oldName];
+                    $table = $data['possibleRenames'][$oldName]['table'];
                     $table->renameTable($name);
                     $output->writeln(
                         sprintf(
-                            '<info>Found one rename candidate, renaming table %s to %s</info>',
+                            '<info>Found one rename candidate, renaming table %s to %s (%.2f%% similarity)</info>',
                             $oldName,
-                            $name
+                            $name,
+                            $data['possibleRenames'][$oldName]['similarity']
                         )
                     );
                     $return['rename'][$oldName] = $table;

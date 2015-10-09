@@ -389,6 +389,158 @@ class Table extends AbstractModel
     }
 
     /**
+     * @return array
+     */
+    public function getFields()
+    {
+        return $this->fields;
+    }
+
+    /**
+     * @return array
+     */
+    public function getFieldNames()
+    {
+        return array_keys($this->fields);
+    }
+
+    /**
+     * @param Table $compare
+     * @return float
+     */
+    public function getSimilarityPercentage(Table $compare)
+    {
+        $fieldPerc = $this->getFieldSimilarityPercentage($compare);
+        $indexPerc = $this->getIndexSimilarityPercentage($compare);
+        $primaryPerc = $this->getPrimarySimilarityPercentage($compare, false);
+        //similarity of fields is way more important than indexes are
+        //the PK itself is as important as all indexes combined, that seems fair
+        $total = $fieldPerc*2 + $indexPerc + $primaryPerc;
+        return round($total/400, 2);//max value of total is 400
+    }
+
+    /**
+     * @param Table $compare
+     * @return float
+     */
+    protected function getFieldSimilarityPercentage(Table $compare)
+    {
+        $fieldCount = count($this->fields);
+        $targetFieldCount = count($compare->fields);
+        //use highest of the two, if the number of fields does not match, the similarity percentage should drop
+        if ($fieldCount < $targetFieldCount) {
+            $fieldCount = $targetFieldCount;
+        }
+        $sharedFields = 0;
+        foreach ($this->getFieldNames() as $fieldName) {
+            $sharedFields += $compare->hasField($fieldName);//false == +0, true == +1
+        }
+        return round(($sharedFields/$fieldCount)*100, 2);
+    }
+
+    /**
+     * @param Table $compare
+     * @return float
+     */
+    protected function getIndexSimilarityPercentage(Table $compare)
+    {
+        $indexCount = count($this->indexes);
+        $targetIndexCount = count($compare->indexes);
+        if ($indexCount < $targetIndexCount) {
+            $indexCount = $targetIndexCount;
+        }
+        if ($indexCount === 0) {
+            return 50;
+        }
+        $sharedIndexes = 0;
+        /** @var Index $idx */
+        foreach ($this->indexes as $idxName => $idx) {
+            $hasIndex = $compare->hasIndex($idxName);
+            if ($hasIndex) {
+                /** @var Index $compareIdx */
+                $compareIdx = $compare->indexes[$idxName];
+                foreach ($idx->getFields() as $idxField) {
+                    if (!$compareIdx->containsField($idxField)) {
+                        $hasIndex /= 2;
+                    }
+                }
+                foreach ($compareIdx->getFields as $idxField) {
+                    if (!$idx->containsField($idxField)) {
+                        $hasIndex /=2;
+                    }
+                }
+            }
+            $sharedIndexes += $hasIndex;
+        }
+        return round(($sharedIndexes/$indexCount)*100, 2);
+    }
+
+    /**
+     * @param Table $compare
+     * @param bool|false $standAlone
+     * @return float|int
+     */
+    protected function getPrimarySimilarityPercentage(Table $compare, $standAlone = false)
+    {
+        //nothing to compare, in terms of similarity they're identical
+        if (!$this->hasPrimary() && $compare->hasPrimary()) {
+            $similarity = 100;
+            if ($standAlone === false) {
+                //but let's not count that as a full match when this percentage
+                //is used to determine the overall similarity percentage
+                $similarity = 80;
+            }
+            return $similarity;
+        }
+        if (!$this->hasPrimary() && $compare->hasPrimary()) {
+            //it is possible the primary key needs to be added, check for missing field:
+            $similarity = 0;
+            foreach ($compare->primary->getFieldNames() as $fieldName) {
+                $similarity += $this->hasField($fieldName);
+            }
+            if ($similarity === count($compare->primary->getFieldNames())) {
+                //all primary fields exist: 50/50 chance the primary needs to be added
+                $similarity = 50;
+            } else {
+                //not all fields exist, but count those that do as a 10% similarity
+                $similarity *= 10;
+            }
+            return $similarity;
+        } elseif ($this->primary && !$compare->hasPrimary()) {
+            //this table has a primary, but the target one doesn't... how likely is it to
+            //DROP PRIMARY KEY without creating a new one? not very -> return that 1/1000 chance?
+            return .1;
+        }
+        //both have PK's defined:
+        $itemsCompared = 0;
+        $similarity = (int) (count($this->primary->getFieldNames()) === count($compare->primary->getFieldNames()));
+        ++$itemsCompared;
+        $compareFields = $compare->primary->getFieldNames();
+        foreach ($this->primary->getFieldNames() as $fieldName) {
+            //does the PK contain the same key?
+            $similarity += in_array($fieldName, $compareFields);
+            //does the field exist?
+            $similarity += $compare->hasField($fieldName);
+            $itemsCompared += 2;
+
+        }
+        $ownFields = $this->primary->getFieldNames();
+        foreach ($compareFields as $fieldName) {
+            $similarity += in_array($fieldName, $ownFields);
+            $similarity += $this->hasField($fieldName);
+            $itemsCompared += 2;
+        }
+        if ($this->primary->isEqual($compare->primary)) {
+            //if equality matches, vastly increase the chance of a 100% similarity being returned
+            $similarity += $itemsCompared;
+        }
+        //give the isEqual call above the proper impact, and avoid returning values > 100%
+        //by doubling the factor
+        $itemsCompared *=2;
+        return round(($similarity/$itemsCompared)*100, 2);
+    }
+
+    /**
      * @param string $name
      * @return bool
      */

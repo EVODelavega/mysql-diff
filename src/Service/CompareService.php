@@ -264,7 +264,10 @@ class CompareService
                 foreach ($table->getConstraints() as $fkName => $fk) {
                     $missingFk = $missing->getConstraintByName($fkName);
                     if ($missingFk && $missingFk->getReferences() === $fk->getReferences()) {
-                        $renameCandidates[$name] = $table;
+                        $renameCandidates[$name] = [
+                            'table'         => $table,
+                            'similarity'    => $table->getSimilarityPercentage($missing),
+                        ];
                     }
                 }
             }
