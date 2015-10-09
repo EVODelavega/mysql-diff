@@ -71,12 +71,6 @@ Tables can now be compared in order to generate a percentage of similarity. This
 4. Overall similarity:
     - The overall similarity is the sum of all 3 similarity percentages (but Fields value is multiplied by 2), divided by 400
 
-1. As a base, take the highest field-count of both tables (ie: tbl1 has 4 fields, tbl2 has 6 -> 6 is the base)
-2. Count the number of fields that are defined in both tables (ie: 3 out of 4 fields in tbl1 are defined in tbl2 -> 3)
-3. Divide the shared count by the base, multiply by 100 => (3/6)\*100 == 50% - set this number asside
-4. Do the same thing for any indexes shared by both tables (ie: tbl1 has 1 index, tbl2 has 3)
-5. Same basic count/base calculation: if that 1 index is shared, there's a similarity percentage of 33.33%, if it isn't the index similarity is 0%
-
 -----
 
 ## How to use
