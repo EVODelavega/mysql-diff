@@ -149,6 +149,11 @@ class CompareCommand extends Command
         return $this;
     }
 
+    /**
+     * Runs at the end of the command -> write resulting queries to STDOUT or a chosen output file
+     * @param OutputInterface $output
+     * @param array $queries
+     */
     private function outputQueries(OutputInterface $output, array $queries)
     {
         /*
@@ -363,6 +368,12 @@ class CompareCommand extends Command
         return $queries;
     }
 
+    /**
+     * Process the possible table renames returned by the compare service
+     * @param array $renames
+     * @param OutputInterface
+     * @return array
+     */
     protected function processRenames(array $renames, OutputInterface $output)
     {
         $return = [
@@ -433,6 +444,12 @@ class CompareCommand extends Command
         return $return;
     }
 
+    /**
+     * Get the the tasks to perform (can be called an infinite number of times
+     * @param OutputInterface $output
+     * @param array $done
+     * @return array
+     */
     private function getTasks(OutputInterface $output, array $done)
     {
         $options = [
@@ -467,6 +484,12 @@ class CompareCommand extends Command
         }, $selected);
     }
 
+    /**
+     * Create DbService instance based on CLI options, prompt for pass
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @return DbService
+     */
     private function getDbService(InputInterface $input, OutputInterface $output)
     {
         $base = $input->getOption('base');
@@ -494,3 +517,4 @@ class CompareCommand extends Command
     }
 
 }
+
