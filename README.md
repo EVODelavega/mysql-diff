@@ -38,6 +38,39 @@ The command now has an `-i` or `--interactive` flag, which allows you to cross-c
 
 If tables might require renaming, and the command is not running interactively, the default behaviour is to create a new table if several possible _"renames"_ have been found. If only one table matches, that table is renamed by default.
 
+Much like the standard symfony verbosity flag, there are 3 levels of interaction, which can be set using either the short flag (`-i|ii|iii`) or passing numeric values to the long option name (`--interactive=3`). If you set the interaction level to `-ii`, you will be able to review, skip, comment out or rewrite `alter` and `drop` statements. The highest verbosity level allows you to do the same thing for all changes (ie: you'll be prompted for `contraints` and `create` statements, too). The highest interaction level assumes you know what you're doing, and is therefore the only level at which you are asked if you want to skip an entire set of changes (eg: _"Do you wish to skip all 123 queries for section alter? (default false)"_). This level of interaction might be useful in cases where the tool gets caught out by field name-changes:
+
+```SQL
+CREATE TABLE foo (
+   id int(11) unsigned NOT NULL AUTO_INCREMENT,
+   bar VARCHAR(255) DEFAULT NULL,
+   field2 text
+)Engine=InnoDB;
+-- vs
+CREATE TABLE foo (
+   id int(11) unsigned NOT NULL AUTO_INCREMENT,
+   bar VARCHAR(255) DEFAULT NULL,
+   field3 text -- Field changed name
+)Engine=InnoDB;
+```
+
+Comparing these tables currently results in an `ALTER` query like:
+
+```SQL
+ALTER TABLE foo
+  ADD COLUMN field3 VARCHAR(255) text,
+  DROP COLUMN field2;
+```
+
+In those cases, it can be worthwhile to actually write a your own query:
+
+```SQL
+ALTER TABLE foo
+   CHANGE COLUMN field2 field3 VARCHAR(255) text;
+```
+
+If you're unsure about the query, or you want to rewrite it at a later time, you can write the generated statement to the output file but have in commented out.
+
 **Similarity**
 
 Tables can now be compared in order to generate a percentage of similarity. This is, of course, nowhere near accurate, but it can give you a rough idea of how similar two tables are. The algorithm that computes the similarity of two tables is as follows:

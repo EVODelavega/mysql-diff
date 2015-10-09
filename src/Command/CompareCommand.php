@@ -17,6 +17,26 @@ use Symfony\Component\Console\Output\StreamOutput;
 
 class CompareCommand extends Command
 {
+    const INTERACTION_NONE = 0;
+    const INTERACTION_LOW = 1;
+    const INTERACTION_HIGH = 2;
+    const INTERACTION_EXTENDED = 3;
+
+    const QUERY_USE = 0;
+    const QUERY_REWRITE = 1;
+    const QUERY_COMMENT = 2;
+    const QUERY_SKIP = 3;
+
+    /**
+     * @var array
+     */
+    protected $queryOptions = [
+        self::QUERY_USE     => 'Use suggested query (default)',
+        self::QUERY_REWRITE => 'Write custom query',
+        self::QUERY_COMMENT => 'Comment out',
+        self::QUERY_SKIP    => 'Skip',
+    ];
+
     /**
      * @var bool
      */
@@ -35,7 +55,7 @@ class CompareCommand extends Command
             ->addOption('username', 'u', InputOption::VALUE_REQUIRED, 'The DB username to use', 'root')
             ->addOption('base', 'b', InputOption::VALUE_REQUIRED, 'The base DB (The db that needs to change)', null)
             ->addOption('target', 't', InputOption::VALUE_REQUIRED, 'The target DB (The example schema we want to migrate to)', null)
-            ->addOption('interactive', 'i', InputOption::VALUE_NONE, 'Compare interactively (prompt for possible renames, allow skipping changes')
+            ->addOption('interactive', 'i', InputOption::VALUE_OPTIONAL, 'Set interactivity level, similar to verbose flag: -i|ii|iii, default is no interaction', null)
         ;
     }
 
@@ -43,6 +63,7 @@ class CompareCommand extends Command
     {
         /** @var DialogHelper $dialog */
         $this->dialog = $this->getHelper('dialog');
+        $this->setInteraction($input, $output);
         $dbService = $this->getDbService($input, $output);
         if (!$dbService) {
             return;
@@ -67,6 +88,65 @@ class CompareCommand extends Command
             );
         } while ($quit === false);
         $this->outputQueries($output, $done);
+    }
+
+    /**
+     * Hacky way to support multiple interactivity modes similar to -v|vv|vvv
+     * There must be a nicer way to do this... I hope
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @return $this
+     */
+    private function setInteraction(InputInterface $input, OutputInterface $output)
+    {
+        $interaction = $input->getOption('interactive');
+        if ($interaction === null) {
+            //set to 1 if flag is used as-is
+            if ($input->hasParameterOption(['-i', '--interactive'])) {
+                $interaction = self::INTERACTION_LOW;
+            } else {
+                $interaction = self::INTERACTION_NONE;
+            }
+        } else {
+            switch ($interaction) {
+                case '0':
+                    $interaction = self::INTERACTION_NONE;
+                    break;
+                case '1':
+                    $interaction = self::INTERACTION_LOW;
+                    break;
+                case 'i':
+                case '2':
+                    $interaction = self::INTERACTION_HIGH;
+                    break;
+                case 'ii':
+                case '3':
+                    $interaction = self::INTERACTION_EXTENDED;
+                    break;
+                default:
+                    $output->writeln(
+                        sprintf(
+                            '<error>Invalid value for interactive option: %s</error>',
+                            $interaction
+                        )
+                    );
+                    $options = [
+                        self::INTERACTION_NONE      => 'Not interactive',
+                        self::INTERACTION_LOW       => 'Normal interactivity',
+                        self::INTERACTION_HIGH      => 'High interaction level (not implemented yet)',
+                        self::INTERACTION_EXTENDED  => 'Extensive interaction (not implemented yet)',
+                    ];
+                    $interaction = $this->dialog->select(
+                        $output,
+                        '<question>Please select the desired interactivity level (default: Normal)</question>',
+                        $options,
+                        self::INTERACTION_LOW
+                    );
+                    break;
+            }
+        }
+        $this->interactive = (int) $interaction;
+        return $this;
     }
 
     private function outputQueries(OutputInterface $output, array $queries)
@@ -104,7 +184,35 @@ class CompareCommand extends Command
                 $outStream = new StreamOutput($outStream);
             }
         }
+        $confirmKeys = [];
+        if ($this->interactive > self::INTERACTION_LOW) {
+            $confirmKeys = [
+                'alter' => true,
+                'drop'  => true,
+            ];
+        }
+        if ($this->interactive === self::INTERACTION_EXTENDED) {
+            $confirmKeys['create'] = true;
+            $confirmKeys['constraints'] = true;
+        }
         foreach ($queries as $section => $statements) {
+            $interactive = isset($confirmKeys[$section]);
+            if ($interactive && $this->interactive === self::INTERACTION_EXTENDED) {
+                $details = sprintf(
+                    '<question>Do you wish to skip all %d queries for section %s (default false)</question>',
+                    count($statements),
+                    $section
+                );
+                $skip = $this->dialog->askConfirmation(
+                    $output,
+                    $details,
+                    false
+                );
+                if ($skip) {
+                    //skip section
+                    continue;
+                }
+            }
             $outStream->writeln(
                 sprintf(
                     '-- %s queries',
@@ -112,7 +220,7 @@ class CompareCommand extends Command
                 )
             );
             foreach ($statements as $q) {
-                $outStream->writeln($q . ';' . PHP_EOL);
+                $this->writeQueryString($outStream, $output, $q, $interactive);
             }
             $outStream->writeln(
                 sprintf(
@@ -121,6 +229,52 @@ class CompareCommand extends Command
                 )
             );
         }
+    }
+
+    /**
+     * @param OutputInterface $outStream
+     * @param OutputInterface $output
+     * @param string $query
+     * @param bool $interactive
+     */
+    protected function writeQueryString(OutputInterface $outStream, OutputInterface $output, $query, $interactive)
+    {
+        if ($interactive) {
+            $output->writeln(
+                sprintf(
+                    '<info>Query: %s</info>',
+                    $query
+                )
+            );
+            $keep = (int) $this->dialog->select(
+                $output,
+                '<question>What do you want to do with this query?</question>',
+                $this->queryOptions,
+                self::QUERY_USE
+            );
+            if ($keep === self::QUERY_SKIP) {
+                //do not write query to $outStream
+                return;
+            }
+            if ($keep === self::QUERY_COMMENT) {
+                $query = sprintf(
+                    '/** %s */',
+                    $query
+                );
+            }
+            if ($keep === self::QUERY_REWRITE) {
+                $query = $this->dialog->ask(
+                    $output,
+                    '<comment>Your replacement query (blank uses current query)</comment>',
+                    $query
+                );
+                $query = trim($query);
+                if (substr($query, -1) === ';') {
+                    $query = substr($query, 0, -1);//remove trailing semi-colon, we're adding it later anyway
+                }
+            }
+        }
+        $outStream->writeln($query . ';' . PHP_EOL);
     }
 
     /**
@@ -336,7 +490,6 @@ class CompareCommand extends Command
             '<question>Please enter the DB password (default "")</question>',
             false
         );
-        $this->interactive = $input->getOption('interactive');
         return new DbService($host, $user, $pass, $base, $target);
     }
 
