@@ -604,6 +604,9 @@ class Table extends AbstractModel
      */
     protected function wrapAlterParts(array $parts)
     {
+        if (!$parts) {
+            return '';//nothing changed, so no empty alter query
+        }
         $query = [
             sprintf(
                 'ALTER TABLE `%s`',
@@ -644,15 +647,17 @@ class Table extends AbstractModel
         $parts =[];
         /** @var Field $field */
         $field = $this->fields[$old];
-        $this->fields[$new] = $field->setName($new);
+        $field->setName($new);
+        $this->fields[$new] = $field;
         //apply rename to this object
         unset($this->fields[$old]);
 
         $indexes = $this->getIndexesWithField($old);
+        /** @var Index $idx */
         foreach ($indexes as $name => $idx) {
             $parts[] = sprintf(
                 'DROP INDEX `%s`',
-                $idx
+                $idx->getName()
             );
             //remove index name
             unset($this->indexes[$name]);
@@ -675,7 +680,7 @@ class Table extends AbstractModel
     {
         $field = $target->getField($fk->getKey());
         $parts = [
-            sprintf('ADD COLUMN %s', $field->getDefaultDefstring()),
+            sprintf('ADD COLUMN %s', $field->getDefinitionString()),
         ];
         $this->fields[$fk->getKey()] = $field;//add field
         /** @var Index $idx */
@@ -820,7 +825,7 @@ class Table extends AbstractModel
                 if ($current->getDefinitionString() != $fk->getDefinitionString()) {
                     if ($current->getReferences() === $fk->getReferences()) {
                         //they both reference the same field, but the key's changed
-                        $rename = $this->getRenameParts($fk->getKey(), $current->getName());
+                        $rename = $this->getRenameParts($fk->getKey(), $current->getKey());
                         $rename[] = sprintf('DROP FOREIGN KEY `%s`', $name);
                         $rename[] = 'ADD ' . $fk->getDefinitionString();
                         $fks[] = $this->wrapAlterParts($rename);
