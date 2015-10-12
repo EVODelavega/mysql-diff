@@ -101,16 +101,18 @@ class DbService
      * @param bool $resolveDependencies = true
      * @return Database
      */
-    public function loadTablesForDatabase(Database $db, $resolveDependencies = true)
+    public function loadTablesForDatabase(Database $db, array $tables = null, $resolveDependencies = true)
     {
         $tables = $this->getTables(
             $db->getName()
         );
         foreach ($tables as $tName) {
-            $this->addCreateStatement(
-                new Table('', $tName),
-                $db
-            );
+            if ($tables && in_array($tName, $tables)) {
+                $this->addCreateStatement(
+                    new Table('', $tName),
+                    $db
+                );
+            }
         }
         if ($resolveDependencies) {
             $db->linkTables();

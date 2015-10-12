@@ -56,6 +56,7 @@ class CompareCommand extends Command
             ->addOption('base', 'b', InputOption::VALUE_REQUIRED, 'The base DB (The db that needs to change)', null)
             ->addOption('target', 't', InputOption::VALUE_REQUIRED, 'The target DB (The example schema we want to migrate to)', null)
             ->addOption('interactive', 'i', InputOption::VALUE_OPTIONAL, 'Set interactivity level, similar to verbose flag: -i|ii|iii, default is no interaction', null)
+            ->addArgument('tables', InputArgument::IS_ARRAY | InputArgument::OPTIONAL, 'Specific tables you want to compare', null)
         ;
     }
 
@@ -69,12 +70,25 @@ class CompareCommand extends Command
             return;
         }
         $compareService = new CompareService($dbService);
+        $tables = $input->getArgument('tables');
+        if (!$tables) {
+            $output->writeln(
+                '<info>Comparing all tables</info>'
+            );
+        } else {
+            $output->writeln(
+                sprintf(
+                    '<info>Attempt to compare tables: %s</info>',
+                    implode(', ', $tables)
+                )
+            );
+        }
         $loadTables = $this->dialog->askConfirmation(
             $output,
             '<question>Do you wish to load table dependencies while loading the schemas? (Recommended)</question>',
             true
         );
-        $dbs = $compareService->getDatabases($loadTables);
+        $dbs = $compareService->getDatabases($tables, $loadTables);
         $done = [];
         do {
             $tasks = $this->getTasks($output, $done);
