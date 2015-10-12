@@ -2,6 +2,7 @@
 namespace Diff\Service;
 
 use Diff\Model\Database;
+use Diff\Model\Field;
 use Diff\Model\Table;
 
 class DbService
@@ -137,7 +138,9 @@ class DbService
         }
         $table->setStatement($create['Create Table'])
             ->parse($create['Create Table']);
-        $db->addTable($table);
+        $db->addTable(
+            $this->getTableFields($db, $table)
+        );
         return $table;
     }
 
@@ -172,6 +175,37 @@ class DbService
             $creates['target'] = $create['Create Table'];
         }
         return $creates;
+    }
+
+    /**
+     * @param Database $db
+     * @param Table $tbl
+     * @return Table
+     */
+    public function getTableFields(Database $db, Table $tbl)
+    {
+        $query = sprintf(
+            'SHOW COLUMNS IN `%s` FROM `%s`',
+            $tbl->getName(),
+            $db->getName()
+        );
+        $stmt = $this->conn->query($query);
+        while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+            $field = new Field('', $row['Field']);
+            $field->setType($row['Type'])
+                ->setNullable(strtoupper($row['Null']) == 'YES')
+                ->setDefaultValue($row['Default']);
+            if ($row['Extra']) {
+                if ($row['Extra'] == 'auto_increment') {
+                    $field->setAutoIncrement(true);
+                } else {
+                    //things like on update?
+                    $field->setExtraString($row['Extra']);
+                }
+            }
+            $tbl->addField($field, true);
+        }
+        return $tbl;
     }
 
     /**

@@ -389,6 +389,26 @@ class Table extends AbstractModel
     }
 
     /**
+     * @param Field $field
+     * @param bool $allowReplace = false
+     * @return $this
+     */
+    public function addField(Field $field, $allowReplace = false)
+    {
+        if (isset($this->fields[$field->getName()]) && !$allowReplace) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Table %s already contains a field called "%s"',
+                    $this->name,
+                    $field->getName()
+                )
+            );
+        }
+        $this->fields[$field->getName()] = $field;
+        return $this;
+    }
+
+    /**
      * @return array
      */
     public function getFields()
