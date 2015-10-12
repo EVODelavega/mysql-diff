@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/EVODelavega/mysql-diff.svg?branch=unit)](https://travis-ci.org/EVODelavega/mysql-diff?branch=unit)
+
 # MySQL diff tool
 
 This tool enables you to automatically generate the queries you need to alter an outdated schema to more closely resemble another version.

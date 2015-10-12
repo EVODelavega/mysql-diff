@@ -26,6 +26,20 @@ class TableTest extends AbstractModel
         $table->addField($field);
     }
 
+    public function testFieldGetters()
+    {
+        $table = new Table(
+            $this->readInputFile('table.sql')
+        );
+        $fieldNames = $table->getFieldNames();
+        foreach($fieldNames as $field) {
+            $this->assertTrue(
+                $table->hasField($field)
+            );
+            $this->assertInstanceOf('Diff\Model\Field', $table->getField($field));
+        }
+    }
+
     /**
      * @expectedException RuntimeException
      * @expectedExceptionMsg Unable to parse field-definition
