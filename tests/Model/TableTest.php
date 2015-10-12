@@ -25,4 +25,15 @@ class TableTest extends AbstractModel
         $field = new Field('', 'foobar_id');
         $table->addField($field);
     }
+
+    /**
+     * @expectedException RuntimeException
+     * @expectedExceptionMsg Unable to parse field-definition
+     */
+    public function testBrokenTable()
+    {
+        $query = $this->readInputFile('bad_table.sql');
+        $table = new Table($query);
+        var_dump($table);
+    }
 }
