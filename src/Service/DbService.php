@@ -62,6 +62,79 @@ class DbService
     }
 
     /**
+     * @param bool $createTarget
+     */
+    public function checkSchemas($createTarget = true)
+    {
+        $stmt = $this->conn->prepare(
+            'SELECT COUNT(SCHEMA_NAME) AS sc FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = :name'
+        );
+        $stmt->execute(
+            [
+                ':name' => $this->base,
+            ]
+        );
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
+        if ($row['sc'] < 1) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Schema %s does not exist (base schema)',
+                    $this->base
+                )
+            );
+        }
+        $stmt->execute(
+            [
+                ':name' => $this->target,
+            ]
+        );
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row['sc'] < 1) {
+            if ($createTarget) {
+                $this->conn->exec(
+                    sprintf(
+                        'CREATE DATABASE `%s` CHARACTER SET utf8',
+                        $this->target
+                    )
+                );
+            } else {
+                throw new \RuntimeException(
+                    sprintf(
+                        'Datbase %s does not exist (target schema)',
+                        $this->target
+                    )
+                );
+            }
+        }
+    }
+
+    public function dropTargetSchema()
+    {
+        $this->conn->exec(
+            sprintf(
+                'DROP DATABASE IF EXISTS `%s`',
+                $this->target
+            )
+        );
+    }
+
+    /**
+     * @param string $file
+     */
+    public function loadTargetSchema($file)
+    {
+        $queries = file_get_contents($file);
+        $this->conn->exec(
+            sprintf(
+                'USE `%s`; %s',
+                $this->target,
+                $queries
+            )
+        );
+    }
+
+    /**
      * @return array
      */
     public function getDatabaseObjects()
