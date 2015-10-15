@@ -171,16 +171,17 @@ class DbService
 
     /**
      * @param Database $db
+     * @param array|null $whiteList = null
      * @param bool $resolveDependencies = true
      * @return Database
      */
-    public function loadTablesForDatabase(Database $db, array $tables = null, $resolveDependencies = true)
+    public function loadTablesForDatabase(Database $db, array $whiteList = null, $resolveDependencies = true)
     {
         $tables = $this->getTables(
             $db->getName()
         );
         foreach ($tables as $tName) {
-            if ($tables && in_array($tName, $tables)) {
+            if ($whiteList === null || in_array($tName, $whiteList)) {
                 $this->addCreateStatement(
                     new Table('', $tName),
                     $db
