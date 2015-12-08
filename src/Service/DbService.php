@@ -43,7 +43,7 @@ class DbService
     public function __construct($host, $user, $pass, $base, $target)
     {
         $dsn = sprintf(
-            'mysql:%s;charset=utf8;',
+            'mysql:host=%s;charset=utf8;',
             $host
         );
         $this->conn = new \PDO(
