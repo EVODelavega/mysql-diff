@@ -1,4 +1,4 @@
-ld Status](https://travis-ci.org/EVODelavega/mysql-diff.svg?branch=master)](https://travis-ci.org/EVODelavega/mysql-diff)
+[![Build Status](https://travis-ci.org/EVODelavega/mysql-diff.svg?branch=master)](https://travis-ci.org/EVODelavega/mysql-diff)
 
 # MySQL diff tool
 
