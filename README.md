@@ -1,4 +1,4 @@
-[Confluence documentation](https://ascensus.atlassian.net/wiki/display/EMMA/DB+Corrector)
+ld Status](https://travis-ci.org/EVODelavega/mysql-diff.svg?branch=master)](https://travis-ci.org/EVODelavega/mysql-diff)
 
 # MySQL diff tool
 
