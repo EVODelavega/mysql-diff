@@ -114,13 +114,11 @@ class CompareCommand extends Command
         $compareService = new CompareService($dbService);
         //see if we only need to compare specific tables
         $tables = $input->getArgument('tables');
-        if(is_array($tables) && (0 == count($tables))) {
-            $tables = null;
-        }
         if (!$tables) {
             $output->writeln(
                 '<info>Comparing all tables</info>'
             );
+            $tables = null;//ensure whitelist is null, not an empty array
         } else {
             $output->writeln(
                 sprintf(
