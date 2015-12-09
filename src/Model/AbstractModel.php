@@ -88,6 +88,7 @@ abstract class AbstractModel
         if ($errOnNames && $this->getName() !== $to->getName()) {
             return $this->statement === $to->statement;
         }
+        return false;
     }
 
     /**
