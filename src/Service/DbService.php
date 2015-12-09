@@ -101,7 +101,7 @@ class DbService
             } else {
                 throw new \RuntimeException(
                     sprintf(
-                        'Datbase %s does not exist (target schema)',
+                        'Database %s does not exist (target schema)',
                         $this->target
                     )
                 );

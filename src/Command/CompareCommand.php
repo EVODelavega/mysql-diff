@@ -413,7 +413,7 @@ class CompareCommand extends Command
                     $output->writeln(
                         '<error>Cannot reliably drop tables if relational table links were not set up</error>'
                     );
-                    $output->writeln('<comment>As a result, these drop statements might not work</coment>');
+                    $output->writeln('<comment>As a result, these drop statements might not work</comment>');
                 }
                 $queries = $service->dropRedundantTables($dbs['base'], $dbs['target']);
                 break;

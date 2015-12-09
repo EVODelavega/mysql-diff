@@ -485,7 +485,7 @@ class Table extends AbstractModel
                         $hasIndex /= 2;
                     }
                 }
-                foreach ($compareIdx->getFields as $idxField) {
+                foreach ($compareIdx->getFields() as $idxField) {
                     if (!$idx->containsField($idxField)) {
                         $hasIndex /=2;
                     }
