@@ -282,6 +282,7 @@ class Table extends AbstractModel
         }
         $query = sprintf(
             'ALTER TABLE `%s` DROP FOREIGN KEY %s',
+            $this->getName(),
             implode(', DROP FOREIGN KEY ', $keys)
         );
         foreach ($keys as $key) {
