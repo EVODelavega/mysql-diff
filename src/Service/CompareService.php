@@ -189,15 +189,16 @@ class CompareService
     }
 
     /**
+     * @param array|null $tables = null
      * @param bool $resolveDependencies
      * @return array
      */
-    public function getDatabases($resolveDependencies = true)
+    public function getDatabases(array $tables = null, $resolveDependencies = true)
     {
         $dbs = $this->dbService->getDatabaseObjects();
         /** @var Database $db */
         foreach ($dbs as $db) {
-            $this->dbService->loadTablesForDatabase($db, $resolveDependencies);
+            $this->dbService->loadTablesForDatabase($db, $tables, $resolveDependencies);
         }
         return $dbs;
     }

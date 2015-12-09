@@ -2,6 +2,7 @@
 namespace Diff\Service;
 
 use Diff\Model\Database;
+use Diff\Model\Field;
 use Diff\Model\Table;
 
 class DbService
@@ -61,6 +62,79 @@ class DbService
     }
 
     /**
+     * @param bool $createTarget
+     */
+    public function checkSchemas($createTarget = true)
+    {
+        $stmt = $this->conn->prepare(
+            'SELECT COUNT(SCHEMA_NAME) AS sc FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = :name'
+        );
+        $stmt->execute(
+            [
+                ':name' => $this->base,
+            ]
+        );
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
+        if ($row['sc'] < 1) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Schema %s does not exist (base schema)',
+                    $this->base
+                )
+            );
+        }
+        $stmt->execute(
+            [
+                ':name' => $this->target,
+            ]
+        );
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row['sc'] < 1) {
+            if ($createTarget) {
+                $this->conn->exec(
+                    sprintf(
+                        'CREATE DATABASE `%s` CHARACTER SET utf8',
+                        $this->target
+                    )
+                );
+            } else {
+                throw new \RuntimeException(
+                    sprintf(
+                        'Database %s does not exist (target schema)',
+                        $this->target
+                    )
+                );
+            }
+        }
+    }
+
+    public function dropTargetSchema()
+    {
+        $this->conn->exec(
+            sprintf(
+                'DROP DATABASE IF EXISTS `%s`',
+                $this->target
+            )
+        );
+    }
+
+    /**
+     * @param string $file
+     */
+    public function loadTargetSchema($file)
+    {
+        $queries = file_get_contents($file);
+        $this->conn->exec(
+            sprintf(
+                'USE `%s`; %s',
+                $this->target,
+                $queries
+            )
+        );
+    }
+
+    /**
      * @return array
      */
     public function getDatabaseObjects()
@@ -97,19 +171,22 @@ class DbService
 
     /**
      * @param Database $db
+     * @param array|null $whiteList = null
      * @param bool $resolveDependencies = true
      * @return Database
      */
-    public function loadTablesForDatabase(Database $db, $resolveDependencies = true)
+    public function loadTablesForDatabase(Database $db, array $whiteList = null, $resolveDependencies = true)
     {
         $tables = $this->getTables(
             $db->getName()
         );
         foreach ($tables as $tName) {
-            $this->addCreateStatement(
-                new Table('', $tName),
-                $db
-            );
+            if ($whiteList === null || in_array($tName, $whiteList)) {
+                $this->addCreateStatement(
+                    new Table('', $tName),
+                    $db
+                );
+            }
         }
         if ($resolveDependencies) {
             $db->linkTables();
@@ -137,7 +214,9 @@ class DbService
         }
         $table->setStatement($create['Create Table'])
             ->parse($create['Create Table']);
-        $db->addTable($table);
+        $db->addTable(
+            $this->getTableFields($db, $table)
+        );
         return $table;
     }
 
@@ -172,6 +251,37 @@ class DbService
             $creates['target'] = $create['Create Table'];
         }
         return $creates;
+    }
+
+    /**
+     * @param Database $db
+     * @param Table $tbl
+     * @return Table
+     */
+    public function getTableFields(Database $db, Table $tbl)
+    {
+        $query = sprintf(
+            'SHOW COLUMNS IN `%s` FROM `%s`',
+            $tbl->getName(),
+            $db->getName()
+        );
+        $stmt = $this->conn->query($query);
+        while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+            $field = new Field('', $row['Field']);
+            $field->setType($row['Type'])
+                ->setNullable(strtoupper($row['Null']) == 'YES')
+                ->setDefaultValue($row['Default']);
+            if ($row['Extra']) {
+                if ($row['Extra'] == 'auto_increment') {
+                    $field->setAutoIncrement(true);
+                } else {
+                    //things like on update?
+                    $field->setExtraString($row['Extra']);
+                }
+            }
+            $tbl->addField($field, true);
+        }
+        return $tbl;
     }
 
     /**

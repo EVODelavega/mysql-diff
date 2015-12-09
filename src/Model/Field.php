@@ -35,6 +35,11 @@ class Field extends AbstractModel
     protected $defaultValue = null;
 
     /**
+     * @var null|string
+     */
+    protected $extra = null;
+
+    /**
      * @return string
      */
     public function getType()
@@ -67,6 +72,32 @@ class Field extends AbstractModel
     public function setAttrString($attrString)
     {
         $this->attrString = $attrString;
+    }
+
+    /**
+     * @param string $extra
+     * @return $this
+     */
+    public function setExtraString($extra)
+    {
+        $this->extra = $extra;
+        return $this;
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasExtra()
+    {
+        return $this->extra !== null;
+    }
+
+    /**
+     * @return null|string
+     */
+    public function getExtra()
+    {
+        return $this->extra;
     }
 
     /**
@@ -143,6 +174,16 @@ class Field extends AbstractModel
     }
 
     /**
+     * @param bool $nullable
+     * @return $this
+     */
+    public function setNullable($nullable)
+    {
+        $this->nullable = $nullable;
+        return $this;
+    }
+
+    /**
      * @return bool
      */
     public function hasDefaultValue()
@@ -170,7 +211,7 @@ class Field extends AbstractModel
             $this->type = $match[2];
             return $this;
         }
-        if (!preg_match('/^`([^`]+)[`\s]*([^\s]+(?!\()|[^)]+\))\s*([^,]*?)(DEFAULT\s+([^,]+)|AUTO_INCREMENT)?,?$/', $stmt, $match)) {
+        if (!preg_match('/^`([^`]+)`[\s]*([^\s]+(?!\()|[^)]+\))\s*([^,]*?)(DEFAULT\s+([^,]+)|AUTO_INCREMENT)?,?$/', $stmt, $match)) {
             throw new \RuntimeException(
                 sprintf(
                     'Unable to parse field-definition %s',
@@ -211,12 +252,13 @@ class Field extends AbstractModel
      */
     public function getDefinitionString()
     {
+        $extra = $this->extra ? : '';
         return sprintf(
             '`%s` %s %s %s',
             $this->name,
             $this->type,
             $this->attrString,
-            $this->getDefaultDefstring()
+            $this->getDefaultDefstring() . ' ' . $extra
         );
     }
 }

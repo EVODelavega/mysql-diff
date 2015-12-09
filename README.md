@@ -1,3 +1,5 @@
+[Confluence documentation](https://ascensus.atlassian.net/wiki/display/EMMA/DB+Corrector)
+
 # MySQL diff tool
 
 This tool enables you to automatically generate the queries you need to alter an outdated schema to more closely resemble another version.

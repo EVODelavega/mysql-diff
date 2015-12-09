@@ -85,9 +85,22 @@ abstract class AbstractModel
                 )
             );
         }
-        if ($errOnNames && $this->getName() !== $to->getName()) {
+        if ($errOnNames && $this->getName() === $to->getName()) {
             return $this->statement === $to->statement;
         }
+        $namelessThis = preg_replace(
+            '/' . preg_quote($this->getName(), '/'). '/',
+            '',
+            $this->statement,
+            1
+        );
+        $namelessTo = preg_replace(
+            '/' . preg_quote($to->getName(), '/') . '/',
+            '',
+            $to->statement,
+            1
+        );
+        return $namelessThis === $namelessTo;
     }
 
     /**

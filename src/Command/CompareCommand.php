@@ -6,7 +6,6 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Formatter\OutputFormatterStyle;
 use Symfony\Component\Console\Helper\DialogHelper;
 use Diff\Service\DbService;
 use Diff\Service\CompareService;
@@ -31,10 +30,10 @@ class CompareCommand extends Command
      * @var array
      */
     protected $queryOptions = [
-        self::QUERY_USE     => 'Use suggested query (default)',
+        self::QUERY_USE => 'Use suggested query (default)',
         self::QUERY_REWRITE => 'Write custom query',
         self::QUERY_COMMENT => 'Comment out',
-        self::QUERY_SKIP    => 'Skip',
+        self::QUERY_SKIP => 'Skip',
     ];
 
     /**
@@ -47,16 +46,38 @@ class CompareCommand extends Command
      */
     protected $dialog = null;
 
+    /**
+     * @var bool
+     */
+    protected $dropSchema = false;
+
+    /**
+     * @var array
+     */
+    protected $arguments = [
+        'host'      => '127.0.0.1',
+        'username'  => 'root',
+        'password'  => '',
+        'base'      => null,
+        'target'    => null,
+        'tables'    => null,
+        'file'      => null,
+    ];
+
     protected function configure()
     {
         $this->setName('db:compare')
-            ->setDescription('compare 2 Databases')
+            ->setDescription('Generate update statements for an existing DB')
             ->addOption('host', 'H', InputOption::VALUE_REQUIRED, 'The host on which both DBs are found', '127.0.0.1')
             ->addOption('username', 'u', InputOption::VALUE_REQUIRED, 'The DB username to use', 'root')
             ->addOption('base', 'b', InputOption::VALUE_REQUIRED, 'The base DB (The db that needs to change)', null)
-            ->addOption('target', 't', InputOption::VALUE_REQUIRED, 'The target DB (The example schema we want to migrate to)', null)
-            ->addOption('interactive', 'i', InputOption::VALUE_OPTIONAL, 'Set interactivity level, similar to verbose flag: -i|ii|iii, default is no interaction', null)
-        ;
+            ->addOption('file', 'F', InputOption::VALUE_REQUIRED, 'The output file, if any', null)
+            ->addOption('target', 't', InputOption::VALUE_REQUIRED,
+                'The target DB (What the base DB should look like after we\'re done)', null)
+            ->addOption('interactive', 'i', InputOption::VALUE_OPTIONAL,
+                'Set interactivity level, similar to verbose flag: -i|ii|iii, default is no interaction', null)
+            ->addArgument('tables', InputArgument::IS_ARRAY | InputArgument::OPTIONAL,
+                'Specific tables you want to compare', null);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -64,17 +85,59 @@ class CompareCommand extends Command
         /** @var DialogHelper $dialog */
         $this->dialog = $this->getHelper('dialog');
         $this->setInteraction($input, $output);
+        //connect to db, check tables - load schema if required etc...
         $dbService = $this->getDbService($input, $output);
         if (!$dbService) {
             return;
         }
+        try {
+            $this->ensureCleanExit($input, $output, $dbService);
+        } catch (\Exception $e) {
+            if ($this->dropSchema) {
+                $dbService->dropTargetSchema();
+            }
+            throw $e;
+        }
+        if ($this->dropSchema) {
+            $dbService->dropTargetSchema();
+        }
+    }
+
+    /**
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @param DbService $dbService
+     */
+    private function ensureCleanExit(InputInterface $input, OutputInterface $output, DbService $dbService)
+    {
+        //begin comparing
         $compareService = new CompareService($dbService);
-        $loadTables = $this->dialog->askConfirmation(
-            $output,
-            '<question>Do you wish to load table dependencies while loading the schemas? (Recommended)</question>',
-            true
-        );
-        $dbs = $compareService->getDatabases($loadTables);
+        //see if we only need to compare specific tables
+        $tables = $input->getArgument('tables');
+        if (!$tables) {
+            $output->writeln(
+                '<info>Comparing all tables</info>'
+            );
+            $tables = null;//ensure whitelist is null, not an empty array
+        } else {
+            $output->writeln(
+                sprintf(
+                    '<info>Attempt to compare tables: %s</info>',
+                    implode(', ', $tables)
+                )
+            );
+        }
+        //default is to link tables...
+        if ($this->interactive >= self::INTERACTION_HIGH) {
+            $loadTables = $this->dialog->askConfirmation(
+                $output,
+                '<question>Do you wish to load table dependencies while loading the schemas? (Recommended)</question>',
+                true
+            );
+        } else {
+            $loadTables = true;
+        }
+        $dbs = $compareService->getDatabases($tables, $loadTables);
         $done = [];
         do {
             $tasks = $this->getTasks($output, $done);
@@ -91,62 +154,45 @@ class CompareCommand extends Command
     }
 
     /**
-     * Hacky way to support multiple interactivity modes similar to -v|vv|vvv
-     * There must be a nicer way to do this... I hope
-     * @param InputInterface $input
+     * Get the the tasks to perform (can be called an infinite number of times
      * @param OutputInterface $output
-     * @return $this
+     * @param array $done
+     * @return array
      */
-    private function setInteraction(InputInterface $input, OutputInterface $output)
+    private function getTasks(OutputInterface $output, array $done)
     {
-        $interaction = $input->getOption('interactive');
-        if ($interaction === null) {
-            //set to 1 if flag is used as-is
-            if ($input->hasParameterOption(['-i', '--interactive'])) {
-                $interaction = self::INTERACTION_LOW;
-            } else {
-                $interaction = self::INTERACTION_NONE;
-            }
-        } else {
-            switch ($interaction) {
-                case '0':
-                    $interaction = self::INTERACTION_NONE;
-                    break;
-                case '1':
-                    $interaction = self::INTERACTION_LOW;
-                    break;
-                case 'i':
-                case '2':
-                    $interaction = self::INTERACTION_HIGH;
-                    break;
-                case 'ii':
-                case '3':
-                    $interaction = self::INTERACTION_EXTENDED;
-                    break;
-                default:
+        $options = [
+            'create',
+            'alter',
+            'constraints',
+            'drop',
+        ];
+
+        $selected = $this->dialog->select(
+            $output,
+            'Please select what you want to check (default is create and alter)',
+            $options,
+            '0,1',
+            false,
+            'Option "%s" is invalid',
+            true
+        );
+
+        return array_filter(
+            array_map(function ($i) use ($options, $done, $output) {
+                $action = $options[$i];
+                if (array_key_exists($action, $done)) {
                     $output->writeln(
                         sprintf(
-                            '<error>Invalid value for interactive option: %s</error>',
-                            $interaction
+                            '<info>Skipping task %s, already done</info>',
+                            $action
                         )
                     );
-                    $options = [
-                        self::INTERACTION_NONE      => 'Not interactive',
-                        self::INTERACTION_LOW       => 'Normal interactivity',
-                        self::INTERACTION_HIGH      => 'High interaction level (not implemented yet)',
-                        self::INTERACTION_EXTENDED  => 'Extensive interaction (not implemented yet)',
-                    ];
-                    $interaction = $this->dialog->select(
-                        $output,
-                        '<question>Please select the desired interactivity level (default: Normal)</question>',
-                        $options,
-                        self::INTERACTION_LOW
-                    );
-                    break;
-            }
-        }
-        $this->interactive = (int) $interaction;
-        return $this;
+                    return null;
+                }
+                return $action;
+            }, $selected)
+        );
     }
 
     /**
@@ -156,26 +202,29 @@ class CompareCommand extends Command
      */
     private function outputQueries(OutputInterface $output, array $queries)
     {
-        /*
-        $multiFiles = $this->dialog->askConfirmation(
-            $output,
-            '<question>Do you want to create separate files for each change-set? (default: no)</question>',
-            false
-        );*/
-        $outFile = $this->dialog->ask(
-            $output,
-            '<question>Where do you want to write the queries to? (file path, leave blank for stdout)</question>',
-            null
-        );
+        if (!$this->arguments['file']) {
+            $outFile = $this->dialog->ask(
+                $output,
+                '<question>Where do you want to write the queries to? (file path, leave blank for stdout)</question>',
+                $this->arguments['file']
+            );
+        } else {
+            $outFile = $this->arguments['file'];
+        }
         if ($outFile === null) {
             $outStream = $output;
         } else {
-            $append = $this->dialog->askConfirmation(
-                $output,
-                '<question>Files will be truncated by default, do you wish to append output instead?</question>',
-                false
-            );
-            $mode = $append ? 'a' : 'w';
+            if ($this->interactive >= self::INTERACTION_HIGH) {
+                $append = $this->dialog->askConfirmation(
+                    $output,
+                    '<question>Files will be truncated by default, do you wish to append output instead?</question>',
+                    false
+                );
+                $mode = $append ? 'a' : 'w';
+            } else {
+                //default is to truncate
+                $mode = 'w';
+            }
             $outStream = fopen($outFile, $mode, false);
             if (!$outStream) {
                 $output->writeln(
@@ -295,11 +344,15 @@ class CompareCommand extends Command
         $queries = [];
         switch ($task) {
             case 'create':
-                $renames = $this->dialog->askConfirmation(
-                    $output,
-                    '<question>Attempt to rename tables? - Default true if interactive + loaded dependencies, false in other cases</question>',
-                    ($this->interactive && $loaded)
-                );
+                if ($this->interactive >= self::INTERACTION_LOW) {
+                    $renames = $this->dialog->askConfirmation(
+                        $output,
+                        '<question>Attempt to rename tables? - Default true if interactive + loaded dependencies, false in other cases</question>',
+                        ($this->interactive && $loaded)
+                    );
+                } else {
+                    $renames = false;
+                }
                 if ($renames && !$loaded) {
                     //inform the user, but let them shoot themselves in the foot regardless...
                     $output->writeln(
@@ -358,7 +411,7 @@ class CompareCommand extends Command
                     $output->writeln(
                         '<error>Cannot reliably drop tables if relational table links were not set up</error>'
                     );
-                    $output->writeln('<comment>As a result, these drop statements might not work</coment>');
+                    $output->writeln('<comment>As a result, these drop statements might not work</comment>');
                 }
                 $queries = $service->dropRedundantTables($dbs['base'], $dbs['target']);
                 break;
@@ -371,7 +424,7 @@ class CompareCommand extends Command
     /**
      * Process the possible table renames returned by the compare service
      * @param array $renames
-     * @param OutputInterface
+     * @param OutputInterface $output
      * @return array
      */
     protected function processRenames(array $renames, OutputInterface $output)
@@ -390,11 +443,11 @@ class CompareCommand extends Command
             if ($this->interactive) {
                 $possibleRenames = [];
                 $options = [];
-                foreach ($data['possibleRenames'] as $name => $values) {
-                    $possibleRenames[$name] = $values['table'];
+                foreach ($data['possibleRenames'] as $name2 => $values) {
+                    $possibleRenames[$name2] = $values['table'];
                     $options[] = sprintf(
                         '%s (Similarity %.2f%%)',
-                        $name,
+                        $name2,
                         $values['similarity']
                     );
                 }
@@ -445,46 +498,6 @@ class CompareCommand extends Command
     }
 
     /**
-     * Get the the tasks to perform (can be called an infinite number of times
-     * @param OutputInterface $output
-     * @param array $done
-     * @return array
-     */
-    private function getTasks(OutputInterface $output, array $done)
-    {
-        $options = [
-            'create',
-            'alter',
-            'constraints',
-            'drop',
-        ];
-
-        $selected = $this->dialog->select(
-            $output,
-            'Please select what you want to check (default is create and alter)',
-            $options,
-            '0,1',
-            false,
-            'Option "%s" is invalid',
-            true
-        );
-
-        return array_map(function ($i) use ($options, $done, $output) {
-            $action = $options[$i];
-            if (array_key_exists($action, $done)) {
-                $output->writeln(
-                    sprintf(
-                        '<info>Skipping task %s, already done</info>',
-                        $action
-                    )
-                );
-            } else {
-                return $action;
-            }
-        }, $selected);
-    }
-
-    /**
      * Create DbService instance based on CLI options, prompt for pass
      * @param InputInterface $input
      * @param OutputInterface $output
@@ -499,22 +512,113 @@ class CompareCommand extends Command
             );
             return null;
         }
-        $target = $input->getOption('target');
-        if (!$target) {
-            $output->writeln(
-                '<error>Missing target DB name</error>'
-            );
-            return null;
-        }
-        $host = $input->getOption('host');
-        $user = $input->getOption('username');
-        $pass = (string) $this->dialog->askHiddenResponse(
+        $this->arguments['base'] = $base;
+        $this->arguments['host'] = $input->getOption('host');
+        $this->arguments['username'] = $input->getOption('username');
+        $this->arguments['file'] = $input->getOption('file');
+        $this->arguments['password'] = (string) $this->dialog->askHiddenResponse(
             $output,
             '<question>Please enter the DB password (default "")</question>',
-            false
+            $this->arguments['password']
         );
-        return new DbService($host, $user, $pass, $base, $target);
+        $target = $input->getOption('target');
+        $schemaFile = null;
+        if (!$target) {
+            $target = 'compare_' . date('YmdHis');
+            $output->writeln(
+                sprintf(
+                    '<info>Missing target DB name - creating schema %s</info>',
+                    $target
+                )
+            );
+            $schemaFile = $this->dialog->ask(
+                $output,
+                '<question>File to create base schema</question>',
+                null
+            );
+            if (!$schemaFile || !file_exists($schemaFile)) {
+                $output->writeln(
+                    sprintf(
+                        '<error>Invalid schema file: %s</error>',
+                        $schemaFile
+                    )
+                );
+                return null;
+            }
+        }
+        $this->arguments['target'] = $target;
+        $service = new DbService(
+            $this->arguments['host'],
+            $this->arguments['username'],
+            $this->arguments['password'],
+            $this->arguments['base'],
+            $this->arguments['target']
+        );
+        $this->dropSchema = $schemaFile !== null;
+        //ensure schemas exist, create target schema if required
+        $service->checkSchemas($this->dropSchema);
+        if ($schemaFile) {
+            $service->loadTargetSchema($schemaFile);
+        }
+        return $service;
     }
 
+    /**
+     * Hacky way to support multiple interactivity modes similar to -v|vv|vvv
+     * There must be a nicer way to do this... I hope
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @return $this
+     */
+    private function setInteraction(InputInterface $input, OutputInterface $output)
+    {
+        $interaction = $input->getOption('interactive');
+        if ($interaction === null) {
+            //set to 1 if flag is used as-is
+            if ($input->hasParameterOption(['-i', '--interactive'])) {
+                $interaction = self::INTERACTION_LOW;
+            } else {
+                $interaction = self::INTERACTION_NONE;
+            }
+        } else {
+            switch ($interaction) {
+                case '0':
+                    $interaction = self::INTERACTION_NONE;
+                    break;
+                case '1':
+                    $interaction = self::INTERACTION_LOW;
+                    break;
+                case 'i':
+                case '2':
+                    $interaction = self::INTERACTION_HIGH;
+                    break;
+                case 'ii':
+                case '3':
+                    $interaction = self::INTERACTION_EXTENDED;
+                    break;
+                default:
+                    $output->writeln(
+                        sprintf(
+                            '<error>Invalid value for interactive option: %s</error>',
+                            $interaction
+                        )
+                    );
+                    $options = [
+                        self::INTERACTION_NONE      => 'Not interactive',
+                        self::INTERACTION_LOW       => 'Normal interactivity',
+                        self::INTERACTION_HIGH      => 'High interaction level (not implemented yet)',
+                        self::INTERACTION_EXTENDED  => 'Extensive interaction (not implemented yet)',
+                    ];
+                    $interaction = $this->dialog->select(
+                        $output,
+                        '<question>Please select the desired interactivity level (default: Normal)</question>',
+                        $options,
+                        self::INTERACTION_LOW
+                    );
+                    break;
+            }
+        }
+        $this->interactive = (int) $interaction;
+        return $this;
+    }
 }
-

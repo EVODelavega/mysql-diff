@@ -282,6 +282,7 @@ class Table extends AbstractModel
         }
         $query = sprintf(
             'ALTER TABLE `%s` DROP FOREIGN KEY %s',
+            $this->getName(),
             implode(', DROP FOREIGN KEY ', $keys)
         );
         foreach ($keys as $key) {
@@ -389,6 +390,26 @@ class Table extends AbstractModel
     }
 
     /**
+     * @param Field $field
+     * @param bool $allowReplace = false
+     * @return $this
+     */
+    public function addField(Field $field, $allowReplace = false)
+    {
+        if (isset($this->fields[$field->getName()]) && !$allowReplace) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Table %s already contains a field called "%s"',
+                    $this->name,
+                    $field->getName()
+                )
+            );
+        }
+        $this->fields[$field->getName()] = $field;
+        return $this;
+    }
+
+    /**
      * @return array
      */
     public function getFields()
@@ -464,7 +485,7 @@ class Table extends AbstractModel
                         $hasIndex /= 2;
                     }
                 }
-                foreach ($compareIdx->getFields as $idxField) {
+                foreach ($compareIdx->getFields() as $idxField) {
                     if (!$idx->containsField($idxField)) {
                         $hasIndex /=2;
                     }
