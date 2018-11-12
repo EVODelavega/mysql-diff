@@ -211,7 +211,7 @@ class Field extends AbstractModel
             $this->type = $match[2];
             return $this;
         }
-        if (!preg_match('/^`([^`]+)`[\s]*([^\s]+(?!\()|[^)]+\))\s*([^,]*?)(DEFAULT\s+([^,]+)|AUTO_INCREMENT)?,?$/', $stmt, $match)) {
+        if (!preg_match('/^`([^`]+)`[\s]*([^\s]+(?!\()|[^)]+\))\s*([^,]*?)(DEFAULT\s+([^,]+)|AUTO_INCREMENT|COMMENT\s.+)?,?$/', $stmt, $match)) {
             throw new \RuntimeException(
                 sprintf(
                     'Unable to parse field-definition %s',
